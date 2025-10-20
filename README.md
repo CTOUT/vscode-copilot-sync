@@ -1,6 +1,6 @@
 # VS Code Copilot Resource Sync Scripts
 
-A collection of PowerShell scripts to automatically sync, combine, and publish [GitHub Copilot](https://github.com/features/copilot) resources from the [awesome-copilot](https://github.com/mdundek/awesome-copilot) community repository to your local VS Code profiles.
+A collection of PowerShell scripts to automatically sync, combine, and publish [GitHub Copilot](https://github.com/features/copilot) resources from the [awesome-copilot](https://github.com/github/awesome-copilot) community repository to your local VS Code profiles.
 
 ## 🎯 What This Does
 
@@ -211,12 +211,11 @@ $env:GITHUB_TOKEN = "ghp_your_token_here"
 
 ### Custom Source Repository
 
-By default, scripts sync from `mdundek/awesome-copilot`. To use a different source:
+By default, scripts sync from `github/awesome-copilot`. To use a different source:
 
-Edit `sync-awesome-copilot.ps1` line 7:
+Edit `sync-awesome-copilot.ps1` line 57:
 ```powershell
-$Owner = "your-username"
-$Repo = "your-repo"
+$Repo = "your-username/your-repo"
 ```
 
 ## 🗂️ File Naming Conventions
@@ -286,7 +285,7 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ## 🙏 Acknowledgments
 
-- [awesome-copilot](https://github.com/mdundek/awesome-copilot) - Community resource repository
+- [awesome-copilot](https://github.com/github/awesome-copilot) - Community resource repository
 - [GitHub Copilot](https://github.com/features/copilot) - AI pair programmer
 
 ## ⚠️ Disclaimer
