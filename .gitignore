@@ -1,0 +1,17 @@
+# Logs directory (contains sync operation logs)
+logs/
+
+# Local awesome-copilot cache (user-specific)
+.awesome-copilot/
+
+# PowerShell history
+.history
+
+# VS Code workspace settings
+.vscode/
+
+# Windows thumbnail cache
+Thumbs.db
+
+# macOS
+.DS_Store
