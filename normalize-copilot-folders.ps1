@@ -71,17 +71,18 @@ $correct = 0
 
 function Classify([string]$fileName) {
   switch -regex ($fileName) {
-    '\\.chatmode\.md$' { return 'chatmodes' }
-    '\\.instructions\.md$' { return 'instructions' }
-    '\\.prompt\.md$' { return 'prompts' }
-    '\\.(collection|collections)\.md$' { return 'collections' }
+    '\.agent\.md$' { return 'agents' }
+    '\.chatmode\.md$' { return 'chatmodes' }
+    '\.instructions\.md$' { return 'instructions' }
+    '\.prompt\.md$' { return 'prompts' }
+    '\.(collection|collections)\.md$' { return 'collections' }
     default { return $null }
   }
 }
 
 foreach ($p in $targets) {
   Log "Scanning profile: $p" 'INFO'
-  $expected = 'chatmodes', 'instructions', 'prompts', 'collections'
+  $expected = 'agents', 'chatmodes', 'instructions', 'prompts', 'collections'
   foreach ($dir in $expected) { $full = Join-Path $p $dir; if (-not (Test-Path $full)) { New-Item -ItemType Directory -Path $full | Out-Null } }
 
   # Consider: any .md file in profile tree at depth 0..2

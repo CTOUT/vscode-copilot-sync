@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-02-26
+
+### Added
+- `publish-global.ps1` — publishes agents to the VS Code user agents folder (via junction so sync updates are reflected immediately) and skills to `~/.copilot/skills/`; supports `-DryRun`, `-SkipAgents`, `-SkipSkills`, `-AgentsTarget`, `-SkillsTarget`
+- `init-repo.ps1` — interactive script to initialise a repo with per-repo resources (instructions, hooks, workflows, project-level skills); uses Out-GridView on Windows with a numbered console-menu fallback; supports `-RepoPath`, `-DryRun`, `-SkipInstructions`, `-SkipHooks`, `-SkipWorkflows`, `-SkipSkills`
+
+### Changed
+- Updated default sync categories to match current awesome-copilot repository structure:
+  - **Added**: `agents`, `workflows`, `hooks`, `skills`
+  - **Removed**: `chatmodes`, `prompts` (no longer exist in awesome-copilot)
+- Added recursive directory traversal in `sync-awesome-copilot.ps1` to support subdirectory-based categories (`skills/`, `hooks/`, `plugins/`)
+- Extended file extension filter to include `.sh` files (required for hooks to function — each hook ships shell scripts alongside its `hooks.json`)
+- Updated `combine-and-publish-prompts.ps1` categories from `chatmodes/instructions/prompts` to `agents/instructions/workflows`; added deprecation notice at top (superseded by `publish-global.ps1` + `init-repo.ps1`); kept for backwards compatibility
+- Updated `normalize-copilot-folders.ps1` to classify `*.agent.md` → `agents/` and ensure `agents/` directory is created on normalize runs
+- Updated `install-scheduled-task.ps1`: default categories now `agents,instructions,workflows,hooks,skills`; `-IncludeCollections` replaced by `-IncludePlugins`; `-SkipCombine` replaced by `-SkipPublishGlobal`; scheduled actions now run `publish-global.ps1` after sync
+
+### Removed
+- `combine-and-publish-prompts.ps1` — superseded by `publish-global.ps1` + `init-repo.ps1`
+- `publish-to-vscode-profile.ps1` — only handled `chatmodes/` and `prompts/` categories which no longer exist in awesome-copilot; use `publish-global.ps1` instead
+
+
+- `plugins/` and `cookbook/` are available but opt-in via `-IncludePlugins` due to their size
+- Hooks are synced as complete packages (README.md + hooks.json + .sh scripts) preserving their directory structure
+- **Design rationale**: agents and skills are global (agents available in all VS Code workspaces; skills loaded on-demand); instructions/hooks/workflows are per-repo opt-in via `init-repo.ps1` to avoid conflicts between contradicting instruction files
+
 ## [1.0.0] - 2025-10-20
 
 ### Added

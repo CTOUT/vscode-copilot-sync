@@ -4,13 +4,22 @@ A collection of PowerShell scripts to automatically sync, combine, and publish [
 
 ## 🎯 What This Does
 
-These scripts automate the management of VS Code Copilot custom instructions, chat modes, prompts, and collections by:
+These scripts automate the management of VS Code Copilot custom agents, instructions, skills, hooks, and workflows from the [awesome-copilot](https://github.com/github/awesome-copilot) community repository:
 
-1. **Syncing** resources from the awesome-copilot GitHub repository
-2. **Combining** multiple resource categories into a unified structure
-3. **Publishing** to your VS Code profile(s) via symbolic links or file copies
-4. **Normalizing** file organization to prevent duplicates
-5. **Automating** the entire process via Windows Task Scheduler
+1. **Syncing** all resources from the awesome-copilot GitHub repository to a local cache
+2. **Publishing globally** — agents to VS Code's user agents folder (available in all workspaces), skills to `~/.copilot/skills/`
+3. **Initialising repos** — interactively adding instructions, hooks, workflows and project-level skills to a specific repo's `.github/` folder
+4. **Automating** the sync + publish cycle via Windows Task Scheduler
+
+### What goes where
+
+| Resource | Scope | Location |
+|---|---|---|
+| **Agents** | 🌐 Global | VS Code user agents folder — available in Copilot Chat across all workspaces |
+| **Skills** | 🌐 Global | `~/.copilot/skills/` — loaded on-demand by Copilot coding agent & CLI |
+| **Instructions** | 📁 Per-repo | `.github/instructions/` — chosen via `init-repo.ps1` |
+| **Hooks** | 📁 Per-repo | `.github/hooks/<name>/` — chosen via `init-repo.ps1` |
+| **Workflows** | 📁 Per-repo | `.github/workflows/` — chosen via `init-repo.ps1` |
 
 ## 📋 Prerequisites
 
@@ -29,21 +38,37 @@ git clone <your-repo-url>
 cd scripts
 ```
 
-### 2. Run Initial Sync
+### 2. Publish Agents and Skills Globally
 
 ```powershell
-# Sync resources from GitHub
-.\sync-awesome-copilot.ps1
-
-# Combine resources into unified folder
-.\combine-and-publish-prompts.ps1
+# Publish agents to VS Code + skills to ~/.copilot/skills/
+.\publish-global.ps1
 ```
 
-### 3. Install Automated Sync (Optional)
+### 3. Initialise a Repo (optional, interactive)
 
 ```powershell
-# Install scheduled task (runs every 4 hours by default)
+# Run from inside any repo to add instructions/hooks/workflows
+cd C:\Projects\my-app
+.\init-repo.ps1
+
+# Or specify the path explicitly
+.\init-repo.ps1 -RepoPath "C:\Projects\my-app"
+```
+
+A selection UI will appear for each category (Out-GridView on Windows, or a numbered console menu). Items already installed in the repo are marked with `[*]`.
+
+### 4. Install Automated Sync (Optional)
+
+```powershell
+# Install a scheduled task that syncs + publishes globally every 6 hours
 .\install-scheduled-task.ps1
+
+# Skip the publish-global step if you manage that manually
+.\install-scheduled-task.ps1 -SkipPublishGlobal
+
+# Also include plugins (opt-in — large download)
+.\install-scheduled-task.ps1 -IncludePlugins
 
 # Or customize the interval
 .\install-scheduled-task.ps1 -Interval "2h"  # Every 2 hours
@@ -54,21 +79,18 @@ cd scripts
 
 ```
 $HOME\.awesome-copilot\          # Local cache
-├── chatmodes\                   # Chat mode definitions
-├── instructions\                # Custom instructions
-├── prompts\                     # Prompt templates
-├── collections\                 # Resource collections
-├── combined\                    # Unified resources (all categories)
+├── agents\                      # Custom agents (.agent.md)
+├── instructions\                # Custom instructions (.instructions.md)
+├── workflows\                   # Agentic workflow definitions
+├── hooks\                       # Automated hooks (with .json + .sh scripts)
+│   └── <hook-name>\
+├── skills\                      # Skill packages
+│   └── <skill-name>\
+│       └── SKILL.md
 └── manifest.json                # Sync state tracking
 
 %APPDATA%\Code\User\             # VS Code global config
 └── prompts\                     # Junction/symlink to combined folder
-
-%APPDATA%\Code\User\profiles\    # VS Code profiles
-└── <profile-name>\
-    ├── chatmodes\               # Linked/copied resources
-    ├── instructions\
-    └── prompts\
 ```
 
 ## 📜 Scripts Overview
@@ -88,50 +110,62 @@ Syncs resources from the awesome-copilot GitHub repository.
 .\sync-awesome-copilot.ps1
 ```
 
+Syncs these categories by default: `agents`, `instructions`, `workflows`, `hooks`, `skills`.
+Add `plugins` or `cookbook` explicitly via `-Categories` for those larger opt-in collections.
+
 **Environment Variables:**
 - `GITHUB_TOKEN` (optional) - Personal access token for higher API rate limits
 
 ---
 
-### `combine-and-publish-prompts.ps1`
-Combines resources from all categories into a unified folder and publishes to VS Code.
+### `publish-global.ps1`
+Publishes agents globally to VS Code and skills to `~/.copilot/skills/`.
 
 **Features:**
-- Merges chatmodes, instructions, and prompts into single directory
-- Creates junction/symlink to VS Code prompts directory
-- Automatic fallback to file copy if linking fails
-- Preserves user-created custom files
+- Creates a junction/symlink from VS Code's user agents folder to the local cache (no re-running needed after each sync)
+- Incrementally copies skills to `~/.copilot/skills/`
+- Dry-run mode for previewing changes
+- Individual skip flags for each resource type
 
 **Usage:**
 ```powershell
-.\combine-and-publish-prompts.ps1
+.\publish-global.ps1
 
-# Publish to specific profile
-.\combine-and-publish-prompts.ps1 -ProfileName "MyProfile"
+# Preview changes without applying
+.\publish-global.ps1 -DryRun
 
-# Publish to global VS Code config only
-.\combine-and-publish-prompts.ps1 -GlobalOnly
+# Skills only (agents already published)
+.\publish-global.ps1 -SkipAgents
+
+# Custom target path (e.g. named VS Code profile)
+.\publish-global.ps1 -AgentsTarget "$env:APPDATA\Code\User\profiles\Work\agents"
 ```
 
 ---
 
-### `publish-to-vscode-profile.ps1`
-Publishes resources to VS Code profile(s) via symbolic links or copies.
+### `init-repo.ps1`
+Interactively initialises a repository with instructions, hooks, workflows, and project-level skills.
 
 **Features:**
-- Creates symbolic links (junctions) for efficient syncing
-- Automatic fallback to file copy
-- Supports multiple profiles or global config
+- Presents available resources from the local cache in a selection UI (Out-GridView on Windows)
+- Falls back to a numbered console menu where Out-GridView is unavailable
+- Copies selected items to the correct `.github/` subfolder
+- Marks already-installed items so you can see what's new
+- Dry-run mode for previewing
 
 **Usage:**
 ```powershell
-.\publish-to-vscode-profile.ps1
+# Run inside a repo (uses current directory)
+.\init-repo.ps1
 
-# Publish to specific profile
-.\publish-to-vscode-profile.ps1 -ProfileName "Work"
+# Target a specific repo
+.\init-repo.ps1 -RepoPath "C:\Projects\my-app"
 
-# Publish to global config
-.\publish-to-vscode-profile.ps1 -GlobalOnly
+# Preview without writing any files
+.\init-repo.ps1 -DryRun
+
+# Skip categories you don't need
+.\init-repo.ps1 -SkipHooks -SkipWorkflows
 ```
 
 ---
@@ -155,34 +189,28 @@ Cleans up misplaced or duplicated files in VS Code directories.
 ---
 
 ### `install-scheduled-task.ps1`
-Creates a Windows scheduled task for automatic syncing.
+Creates a Windows scheduled task for automatic syncing and global publishing.
 
 **Features:**
-- Runs sync and combine scripts on a schedule
-- Default: every 4 hours
+- Runs `sync-awesome-copilot.ps1` then `publish-global.ps1` on a schedule
+- Default: every 6 hours
 - Customizable interval
-- Runs as current user (no SYSTEM account needed)
 
 **Usage:**
 ```powershell
-# Install with default 4-hour interval
+# Install with defaults (sync + publish-global every 6 hours)
 .\install-scheduled-task.ps1
 
 # Custom intervals
 .\install-scheduled-task.ps1 -Interval "2h"   # Every 2 hours
-.\install-scheduled-task.ps1 -Interval "30m"  # Every 30 minutes
 .\install-scheduled-task.ps1 -Interval "1d"   # Once daily
+
+# Sync only (skip publish-global)
+.\install-scheduled-task.ps1 -SkipPublishGlobal
 
 # Check task status
 Get-ScheduledTask -TaskName "AwesomeCopilotSync"
 ```
-
-**Interval Format:**
-- `30m` - Minutes
-- `2h` - Hours
-- `1d` - Days
-
----
 
 ### `uninstall-scheduled-task.ps1`
 Removes the scheduled task.
@@ -222,12 +250,13 @@ $Repo = "your-username/your-repo"
 
 Resources follow naming patterns for automatic categorization:
 
-- `*.chatmode.md` - Chat mode definitions
+- `*.agent.md` - Custom agents
 - `*.instructions.md` - Custom instructions
-- `*.prompt.md` - Prompt templates
-- `*.collection.yml` - Resource collections
+- `*.chatmode.md` - Chat mode definitions (legacy)
+- `*.prompt.md` - Prompt templates (legacy)
 
 Files without these suffixes in the combined folder are preserved (assumed to be user-created).
+Skills and hooks are directory-based packages and are not combined into the prompts folder.
 
 ## 🛠️ Troubleshooting
 

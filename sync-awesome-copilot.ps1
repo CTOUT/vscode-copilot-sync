@@ -1,7 +1,7 @@
 [CmdletBinding()] param(
     [string]$Dest = "$HOME/.awesome-copilot",
-    # Default now excludes 'collections' (can still be added explicitly via -Categories)
-    [string]$Categories = 'chatmodes,instructions,prompts',
+    # Default covers all main categories; add 'plugins' or 'cookbook' explicitly for larger opt-in categories
+    [string]$Categories = 'agents,instructions,workflows,hooks,skills',
     [switch]$Quiet,
     [switch]$NoDelete,
     [switch]$DiffOnly,
@@ -101,6 +101,24 @@ function Get-FileHashSha256String {
     ($hashBytes | ForEach-Object { $_.ToString('x2') }) -join ''
 }
 
+# Recursively fetch all file entries under a GitHub contents API URL.
+# Handles both flat directories and nested subdirectory structures (e.g. skills/, hooks/).
+function Get-RepoFiles {
+    param([string]$Url)
+    Check-Timeout
+    try { $entries = Invoke-Github -Url $Url } catch { Write-Log "Failed to list $Url : $_" 'ERROR'; return @() }
+    $files = @()
+    foreach ($entry in $entries) {
+        if ($entry.type -eq 'file') {
+            $files += $entry
+        }
+        elseif ($entry.type -eq 'dir') {
+            $files += Get-RepoFiles -Url $entry.url
+        }
+    }
+    return $files
+}
+
 if ($DiffOnly) {
     if (-not $PrevManifest) { Write-Log "No previous manifest; diff-only mode cannot proceed." 'ERROR'; exit 1 }
     Write-Log "Diff-only mode: no network calls. Summarizing previous manifest." 'INFO'
@@ -126,7 +144,7 @@ foreach ($cat in $CategoriesList) {
     Write-Log "Fetching category: $cat" 'INFO'
     $url = "$ApiBase/repos/$Repo/contents/$cat"
     try {
-        $listing = Invoke-Github -Url $url
+        $allEntries = Get-RepoFiles -Url $url
     }
     catch {
         Write-Log "Failed to list $cat" 'ERROR'
@@ -136,9 +154,8 @@ foreach ($cat in $CategoriesList) {
     if (-not $script:SuccessfulCategories) { $script:SuccessfulCategories = @() }
     $script:SuccessfulCategories += $cat
 
-    foreach ($entry in $listing) {
-        if ($entry.type -ne 'file') { continue }
-        if (-not ($entry.name -match '\.(md|markdown|json)$')) { continue }
+    foreach ($entry in $allEntries) {
+        if (-not ($entry.name -match '\.(md|markdown|json|sh)$')) { continue }
         Check-Timeout
         $downloadUrl = $entry.download_url
         if (-not $downloadUrl) { continue }
