@@ -67,6 +67,12 @@ if (Test-Path $manifest) {
     Log "No local cache found — sync will download everything fresh." 'WARN'
 }
 
+if ($InstallTask -and $UninstallTask) {
+    Log "-InstallTask and -UninstallTask cannot both be set." 'ERROR'; exit 1
+}
+# Task management implies no interactive repo setup
+if ($InstallTask -or $UninstallTask) { $SkipInit = $true }
+
 # ---------------------------------------------------------------------------
 # STEP 1: Sync
 # ---------------------------------------------------------------------------
@@ -108,13 +114,6 @@ if (-not $SkipInit) {
 # ---------------------------------------------------------------------------
 # STEP 4: Scheduled task
 # ---------------------------------------------------------------------------
-if ($InstallTask -and $UninstallTask) {
-    Log "-InstallTask and -UninstallTask cannot both be set." 'ERROR'; exit 1
-}
-
-# Task management implies no interactive repo setup
-if ($InstallTask -or $UninstallTask) { $SkipInit = $true }
-
 if ($InstallTask) {
     Step "Install scheduled task"
     if ($DryRun) {
