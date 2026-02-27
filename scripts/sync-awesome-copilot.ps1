@@ -100,9 +100,7 @@ if (Test-Path $ManifestPath) {
 
 function Get-Sha256 {
     param([string]$FilePath)
-    $sha256    = [System.Security.Cryptography.SHA256]::Create()
-    $hashBytes = $sha256.ComputeHash([System.IO.File]::ReadAllBytes($FilePath))
-    return ($hashBytes | ForEach-Object { $_.ToString('x2') }) -join ''
+    return (Get-FileHash -LiteralPath $FilePath -Algorithm SHA256).Hash.ToLower()
 }
 
 # ---------------------------------------------------------------------------

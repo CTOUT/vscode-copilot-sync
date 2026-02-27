@@ -42,7 +42,7 @@ Usage:
 )
 
 $ErrorActionPreference = 'Stop'
-$ScriptDir = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'scripts'
+$ScriptDir = Join-Path $PSScriptRoot 'scripts'
 
 function Log($m, [string]$level = 'INFO') {
     $ts = (Get-Date).ToString('s')

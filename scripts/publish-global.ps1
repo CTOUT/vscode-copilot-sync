@@ -173,7 +173,10 @@ if (-not $SkipSkills) {
 
         # Ensure VS Code is configured to discover skills
         $vsCodeSettings = Join-Path $env:APPDATA 'Code\User\settings.json'
-        if (Test-Path $vsCodeSettings) {
+        if (-not (Test-Path $vsCodeSettings)) {
+            Log "VS Code settings.json not found at $vsCodeSettings — skills discovery not configured. Open VS Code once to generate it, then re-run." 'WARN'
+        }
+        else {
             try {
                 $s = Get-Content $vsCodeSettings -Raw | ConvertFrom-Json
                 $changed = $false
