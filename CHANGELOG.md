@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-02-27
+
+### Fixed
+- `configure.ps1`: `-InstallTask` / `-UninstallTask` now automatically skip the `init-repo` prompt (validation moved before Step 1 so the flag takes effect)
+- `configure.ps1`: prompts to overwrite when the scheduled task already exists, instead of throwing a hard error
+- `scripts/install-scheduled-task.ps1`: added `-WorkingDirectory` to both scheduled task actions (was defaulting to `C:\Windows\System32`, causing a permissions error creating the `logs/` directory)
+- `scripts/sync-awesome-copilot.ps1`: replaced relative `logs/` path with `$PSScriptRoot/logs/` so logs always land in `scripts/logs/` regardless of working directory
+- `scripts/install-scheduled-task.ps1`: updated task description (removed stale "combine" wording)
+- `scripts/publish-global.ps1`: fixed named-profile example path (`agents\` → `prompts\`)
+- `README.md`: corrected default interval (6h → 4h), log paths, authentication section, and custom-repo instructions
+- `.github/copilot-instructions.md`: removed stale GitHub API / `GITHUB_TOKEN` references; updated cache structure
+
 ## [1.2.0] - 2026-02-27
 
 ### Changed

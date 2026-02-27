@@ -48,9 +48,9 @@ For first-time setup or an on-demand refresh, `configure.ps1` chains all steps:
 .\configure.ps1
 
 # Or step by step:
-.\configure.ps1 -SkipInit                      # sync + publish only
-.\configure.ps1 -SkipSync -SkipPublish -SkipInit -InstallTask  # install scheduled task
-.\configure.ps1 -DryRun                         # preview everything
+.\configure.ps1 -SkipInit                 # sync + publish only
+.\configure.ps1 -InstallTask              # sync + publish + install scheduled task
+.\configure.ps1 -DryRun                   # preview everything
 ```
 
 ### 3. Initialise a Repo (optional, interactive)
@@ -72,11 +72,11 @@ A selection UI will appear for each category (Out-GridView on Windows, or a numb
 
 ```powershell
 # Install a scheduled task that syncs + publishes globally every 4 hours
-.\configure.ps1 -SkipSync -SkipPublish -SkipInit -InstallTask
+.\configure.ps1 -InstallTask
 
-# Customize the interval
-.\configure.ps1 -SkipSync -SkipPublish -SkipInit -InstallTask -Every "2h"   # Every 2 hours
-.\configure.ps1 -SkipSync -SkipPublish -SkipInit -InstallTask -Every "30m"  # Every 30 minutes
+# Customize the interval (re-run to overwrite; configure.ps1 prompts before replacing)
+.\configure.ps1 -InstallTask -Every "2h"   # Every 2 hours
+.\configure.ps1 -InstallTask -Every "30m"  # Every 30 minutes
 
 # Or run it directly (called internally by configure.ps1)
 .\scripts\install-scheduled-task.ps1 -Every "2h"
@@ -228,8 +228,9 @@ Creates a Windows scheduled task for automatic syncing and global publishing. Ca
 
 **Usage:**
 ```powershell
-# Recommended: use configure.ps1
-.\configure.ps1 -SkipSync -SkipPublish -SkipInit -InstallTask
+# Recommended: use configure.ps1 (prompts before overwriting an existing task)
+.\configure.ps1 -InstallTask
+.\configure.ps1 -InstallTask -Every "2h"
 
 # Or run directly
 .\scripts\install-scheduled-task.ps1
