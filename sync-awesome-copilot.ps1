@@ -12,7 +12,7 @@
     [int]$TimeoutSeconds = 600
 )
 
-$ErrorActionPreference = 'Inquire'
+$ErrorActionPreference = 'Stop'
 
 $script:StartTime = Get-Date
 $script:Deadline = $script:StartTime.AddSeconds($TimeoutSeconds)
