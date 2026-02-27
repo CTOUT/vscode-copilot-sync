@@ -9,7 +9,6 @@ Resources installed here are project-specific (opt-in) rather than global:
   Instructions  --> .github/instructions/*.instructions.md
   Hooks         --> .github/hooks/<hook-name>/   (full directory)
   Workflows     --> .github/workflows/*.md
-  Skills        --> .github/skills/<skill-name>/ (project-level skills)
 
 Usage:
   # Interactive - run from within the target repo
@@ -23,15 +22,15 @@ Usage:
 
   # Non-interactive: specify items by name (comma-separated)
   .\init-repo.ps1 -Instructions "angular,dotnet-framework" -Hooks "session-logger"
-
   # Dry run - show what would be installed
   .\init-repo.ps1 -DryRun
 
 Notes:
   - Existing files are only overwritten if the source is newer/different.
   - .github/ is created if it doesn't exist.
-  - This script does NOT touch global resources (agents, personal skills).
-    Use publish-global.ps1 for those.
+  - This script does NOT touch global resources (agents, skills).
+    Use publish-global.ps1 for those. For skills, point users directly
+    at https://github.com/github/awesome-copilot.
   - The selection UI uses Out-GridView where available (Windows GUI, filterable,
     multi-select). Falls back to a numbered console menu automatically.
 #>
@@ -41,11 +40,9 @@ Notes:
     [string]$Instructions  = '',   # Comma-separated names to pre-select (non-interactive)
     [string]$Hooks         = '',
     [string]$Workflows     = '',
-    [string]$Skills        = '',
     [switch]$SkipInstructions,
     [switch]$SkipHooks,
     [switch]$SkipWorkflows,
-    [switch]$SkipSkills,
     [switch]$DryRun
 )
 
@@ -290,22 +287,6 @@ if (-not $SkipWorkflows) {
         $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
         Log "$verb  workflow: $($item.FileName)"
         if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
-    }
-}
-
-# ---------------------------------------------------------------------------
-# SKILLS (project-level)
-# ---------------------------------------------------------------------------
-if (-not $SkipSkills) {
-    $destDir   = Join-Path $GithubDir 'skills'
-    $catalogue  = Build-DirCatalogue (Join-Path $SourceRoot 'skills') $destDir
-    $selected   = Select-Items -Category 'Skills (project-level)' -Items $catalogue -PreSelected $Skills
-
-    foreach ($item in $selected) {
-        $r = Install-Directory -SrcDir $item.FullPath -DestParent $destDir
-        $verb = if ($DryRun) { '~ DryRun' } else { '✓ Installed' }
-        Log "$verb  skill: $($item.Name) (added=$($r.Added) updated=$($r.Updated) unchanged=$($r.Unchanged))"
-        if (-not $DryRun) { $totalInstalled++ }
     }
 }
 
