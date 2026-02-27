@@ -41,7 +41,7 @@ $actions += New-ScheduledTaskAction -Execute $PwshPath -Argument $syncArgs
 
 if (-not $SkipPublishGlobal) {
     # publish-global runs after sync: updates VS Code agents folder and ~/.copilot/skills/
-    $publishArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$PublishGlobalScriptPath`" -SourceRoot `"$Dest`" -Quiet"
+    $publishArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$PublishGlobalScriptPath`" -SourceRoot `"$Dest`""
     $actions += New-ScheduledTaskAction -Execute $PwshPath -Argument $publishArgs
 }
 $Trigger = if ($int.Type -eq 'HOURLY') { New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval ([TimeSpan]::FromHours($int.Modifier)) -RepetitionDuration ([TimeSpan]::FromDays(3650)) } else { New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval ([TimeSpan]::FromMinutes($int.Modifier)) -RepetitionDuration ([TimeSpan]::FromDays(3650)) }

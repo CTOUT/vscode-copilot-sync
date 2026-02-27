@@ -8,7 +8,7 @@ global locations where they are always available across all workspaces/repos:
               Default: %APPDATA%\Code\User\prompts\
               Strategy: symlink / junction first, then file-copy fallback
 
-  Skills  --> Personal skills directory (loaded on-demand by CCA / Copilot CLI)
+  Skills  --> Personal skills directory (loaded on-demand by VS Code Agent mode / Copilot CLI)
               Default: ~\.copilot\skills\
               Strategy: mirror each skill subdirectory (incremental copy)
 

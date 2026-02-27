@@ -341,7 +341,7 @@ function Select-Items {
             $indices += [int]$part
         }
     }
-    return @($Items | Where-Object { $indices -contains ($Items.IndexOf($_) + 1) })
+    return @($Items | Where-Object { $indices -contains ([Array]::IndexOf($Items, $_) + 1) })
 }
 
 # ---------------------------------------------------------------------------

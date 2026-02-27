@@ -8,14 +8,14 @@ These scripts automate the management of VS Code Copilot custom agents, instruct
 
 1. **Syncing** all resources from the awesome-copilot GitHub repository to a local cache
 2. **Publishing globally** — agents to VS Code's user agents folder (available in all workspaces), skills to `~/.copilot/skills/`
-3. **Initialising repos** — interactively adding instructions, hooks, workflows and project-level skills to a specific repo's `.github/` folder
+3. **Initialising repos** — interactively adding agents, instructions, hooks and agentic workflows to a specific repo's `.github/` folder
 4. **Automating** the sync + publish cycle via Windows Task Scheduler
 
 ### What goes where
 
 | Resource | Scope | Location |
 |---|---|---|
-| **Agents** | 🌐 Global | VS Code user agents folder — available in Copilot Chat across all workspaces |
+| **Agents** | 🌐 Global | `%APPDATA%\Code\User\prompts\` — available in Copilot Chat across all workspaces |
 | **Skills** | 🌐 Global | `~/.copilot/skills/` — loaded on-demand by Copilot coding agent & CLI |
 | **Instructions** | 📁 Per-repo | `.github/instructions/` — chosen via `init-repo.ps1` |
 | **Hooks** | 📁 Per-repo | `.github/hooks/<name>/` — chosen via `init-repo.ps1` |
@@ -61,7 +61,7 @@ A selection UI will appear for each category (Out-GridView on Windows, or a numb
 ### 4. Install Automated Sync (Optional)
 
 ```powershell
-# Install a scheduled task that syncs + publishes globally every 6 hours
+# Install a scheduled task that syncs + publishes globally every 4 hours
 .\install-scheduled-task.ps1
 
 # Skip the publish-global step if you manage that manually
@@ -71,8 +71,8 @@ A selection UI will appear for each category (Out-GridView on Windows, or a numb
 .\install-scheduled-task.ps1 -IncludePlugins
 
 # Or customize the interval
-.\install-scheduled-task.ps1 -Interval "2h"  # Every 2 hours
-.\install-scheduled-task.ps1 -Interval "1d"  # Once daily
+.\install-scheduled-task.ps1 -Every "2h"  # Every 2 hours
+.\install-scheduled-task.ps1 -Every "30m" # Every 30 minutes
 ```
 
 ## 📁 What Gets Created
@@ -89,8 +89,8 @@ $HOME\.awesome-copilot\          # Local cache
 │       └── SKILL.md
 └── manifest.json                # Sync state tracking
 
-%APPDATA%\Code\User\             # VS Code global config
-└── prompts\                     # Junction/symlink to combined folder
+%APPDATA%\Code\User\
+└── prompts\                     # Junction → ~/.awesome-copilot/agents/
 ```
 
 ## 📜 Scripts Overview
@@ -138,16 +138,18 @@ Publishes agents globally to VS Code and skills to `~/.copilot/skills/`.
 .\publish-global.ps1 -SkipAgents
 
 # Custom target path (e.g. named VS Code profile)
-.\publish-global.ps1 -AgentsTarget "$env:APPDATA\Code\User\profiles\Work\agents"
+.\publish-global.ps1 -AgentsTarget "$env:APPDATA\Code\User\profiles\Work\prompts"
 ```
 
 ---
 
 ### `init-repo.ps1`
-Interactively initialises a repository with instructions, hooks, workflows, and project-level skills.
+Interactively initialises a repository with agents, instructions, hooks, and agentic workflows.
 
 **Features:**
-- Presents available resources from the local cache in a selection UI (Out-GridView on Windows)
+- Auto-detects language/framework from repo file signals and pre-marks recommendations with ★ in the picker
+- Prompts for intent (language, project type, concerns) for new/empty repos
+- Presents available resources in a selection UI (Out-GridView on Windows, with `-- none / skip --` row to prevent accidental installs)
 - Falls back to a numbered console menu where Out-GridView is unavailable
 - Copies selected items to the correct `.github/` subfolder
 - Marks already-installed items so you can see what's new
@@ -166,6 +168,9 @@ Interactively initialises a repository with instructions, hooks, workflows, and 
 
 # Skip categories you don't need
 .\init-repo.ps1 -SkipHooks -SkipWorkflows
+
+# Non-interactive: specify items by name
+.\init-repo.ps1 -Agents "devops-expert,se-security-reviewer" -Instructions "powershell"
 ```
 
 ---
@@ -182,8 +187,14 @@ Cleans up misplaced or duplicated files in VS Code directories.
 ```powershell
 .\normalize-copilot-folders.ps1
 
-# Normalize specific profile
-.\normalize-copilot-folders.ps1 -ProfileName "MyProfile"
+# Normalize a specific profile root
+.\normalize-copilot-folders.ps1 -ProfileRoot "C:\Users\me\AppData\Roaming\Code\User\profiles\abc123" -NoDryRun
+
+# Normalize all profiles (dry run)
+.\normalize-copilot-folders.ps1 -AllProfiles
+
+# Apply across all profiles
+.\normalize-copilot-folders.ps1 -AllProfiles -NoDryRun
 ```
 
 ---
@@ -198,12 +209,12 @@ Creates a Windows scheduled task for automatic syncing and global publishing.
 
 **Usage:**
 ```powershell
-# Install with defaults (sync + publish-global every 6 hours)
+# Install with defaults (sync + publish-global every 4 hours)
 .\install-scheduled-task.ps1
 
-# Custom intervals
-.\install-scheduled-task.ps1 -Interval "2h"   # Every 2 hours
-.\install-scheduled-task.ps1 -Interval "1d"   # Once daily
+# Custom intervals (supports h = hours, m = minutes)
+.\install-scheduled-task.ps1 -Every "2h"   # Every 2 hours
+.\install-scheduled-task.ps1 -Every "30m"  # Every 30 minutes
 
 # Sync only (skip publish-global)
 .\install-scheduled-task.ps1 -SkipPublishGlobal

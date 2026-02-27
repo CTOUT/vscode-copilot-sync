@@ -90,7 +90,7 @@ foreach ($p in $targets) {
   foreach ($f in $candidates) {
     $targetFolder = Classify -fileName $f.Name
     if (-not $targetFolder) { continue }
-    $currentFolder = Split-Path $f.FullName -LeafParent
+    $currentFolder = Split-Path $f.FullName -Parent
     $currentBase = Split-Path $currentFolder -Leaf
     if ($currentBase -eq $targetFolder) { $correct++; continue }
 

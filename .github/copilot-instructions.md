@@ -14,7 +14,7 @@ install-scheduled-task.ps1     # 4. Automate steps 1+2 on a schedule
 ```
 
 **Resource scopes:**
-- **Global** (machine-wide): Agents → `%APPDATA%\Code\User\agents\`; Skills → `~/.copilot/skills/`
+- **Global** (machine-wide): Agents → `%APPDATA%\Code\User\prompts\`; Skills → `~/.copilot/skills/`
 - **Per-repo** (committed to `.github/`): Instructions, Hooks, Workflows
 
 ## Key Conventions
