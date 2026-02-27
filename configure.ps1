@@ -112,6 +112,9 @@ if ($InstallTask -and $UninstallTask) {
     Log "-InstallTask and -UninstallTask cannot both be set." 'ERROR'; exit 1
 }
 
+# Task management implies no interactive repo setup
+if ($InstallTask -or $UninstallTask) { $SkipInit = $true }
+
 if ($InstallTask) {
     Step "Install scheduled task"
     if ($DryRun) {
