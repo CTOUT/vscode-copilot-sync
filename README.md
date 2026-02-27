@@ -36,7 +36,7 @@ These scripts automate the management of VS Code Copilot custom agents, instruct
 ```powershell
 # Clone this repository
 git clone <your-repo-url>
-cd scripts
+cd vscode-copilot-sync
 ```
 
 ### 2. Run the Configurator

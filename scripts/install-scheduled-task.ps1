@@ -8,8 +8,8 @@
     # Allow skipping the global publish step if user only wants raw sync
     [switch]$SkipPublishGlobal,
     [string]$PwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source),
-    [string]$ScriptPath = (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'sync-awesome-copilot.ps1'),
-    [string]$PublishGlobalScriptPath = (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'publish-global.ps1'),
+    [string]$ScriptPath = (Join-Path $PSScriptRoot 'sync-awesome-copilot.ps1'),
+    [string]$PublishGlobalScriptPath = (Join-Path $PSScriptRoot 'publish-global.ps1'),
     [switch]$Force
 )
 
