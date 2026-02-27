@@ -334,7 +334,7 @@ function Install-File {
     if ($srcHash -eq $dstHash) { return 'unchanged' }
     if ($DryRun) { return 'would-copy' }
     Copy-Item $Src $dest -Force
-    return if ($dstHash) { 'updated' } else { 'added' }
+    if ($dstHash) { return 'updated' } else { return 'added' }
 }
 
 # ---------------------------------------------------------------------------
