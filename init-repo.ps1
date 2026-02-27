@@ -281,7 +281,7 @@ function Select-Items {
 
     if ($ogvAvailable) {
         $display = $Items | Select-Object `
-            @{ N='★';         E={ if ($_.IsRecommended) { '★' } else { '' } } },
+            @{ N='Rec';       E={ if ($_.IsRecommended) { '★' } else { '' } } },
             @{ N='Installed'; E={ if ($_.AlreadyInstalled) { '[*]' } else { '' } } },
             @{ N='Name';      E={ $_.Name } },
             @{ N='Description'; E={ $_.Description } }
