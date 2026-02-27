@@ -5,7 +5,7 @@ Publishes two categories of resources from the local awesome-copilot cache to
 global locations where they are always available across all workspaces/repos:
 
   Agents  --> VS Code user agents folder (available in Copilot Chat globally)
-              Default: ~/.copilot/agents/
+              Default: %APPDATA%\Code\User\prompts\
               Strategy: symlink / junction first, then file-copy fallback
 
   Skills  --> Personal skills directory (loaded on-demand by CCA / Copilot CLI)
@@ -38,7 +38,7 @@ Notes:
 #>
 [CmdletBinding()] param(
     [string]$SourceRoot   = "$HOME/.awesome-copilot",
-    [string]$AgentsTarget = (Join-Path $HOME '.copilot\agents'),
+    [string]$AgentsTarget = (Join-Path $env:APPDATA 'Code\User\prompts'),
     [string]$SkillsTarget = (Join-Path $HOME '.copilot\skills'),
     [switch]$SkipAgents,
     [switch]$SkipSkills,
