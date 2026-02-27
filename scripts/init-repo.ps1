@@ -54,6 +54,7 @@ Notes:
     [switch]$DryRun
 )
 
+#region Initialisation
 $ErrorActionPreference = 'Stop'
 
 function Log($m, [string]$level = 'INFO') {
@@ -62,9 +63,9 @@ function Log($m, [string]$level = 'INFO') {
     Write-Host "[$ts][$level] $m" -ForegroundColor $color
 }
 
-# ---------------------------------------------------------------------------
-# Detect language/framework signals from repo files
-# ---------------------------------------------------------------------------
+#endregion # Initialisation
+
+#region Stack detection
 function Detect-RepoStack {
     param([string]$RepoPath)
 
@@ -151,9 +152,9 @@ function Detect-RepoStack {
     return @($recs | Sort-Object -Unique)
 }
 
-# ---------------------------------------------------------------------------
-# Prompt for intent when no signals detected (new/empty repo)
-# ---------------------------------------------------------------------------
+#endregion # Stack detection
+
+#region Intent prompt
 function Prompt-RepoIntent {
     $recs = [System.Collections.Generic.List[string]]::new()
 
@@ -223,9 +224,9 @@ function Prompt-RepoIntent {
     return @($recs | Sort-Object -Unique)
 }
 
-# ---------------------------------------------------------------------------
-# Validate paths
-# ---------------------------------------------------------------------------
+#endregion # Intent prompt
+
+#region Path validation and stack detection
 if (-not (Test-Path $RepoPath)) {
     Log "Repo path not found: $RepoPath" 'ERROR'; exit 1
 }
@@ -239,9 +240,7 @@ $GithubDir = Join-Path $RepoPath '.github'
 Log "Target repo  : $RepoPath"
 Log "Copilot cache: $SourceRoot"
 
-# ---------------------------------------------------------------------------
 # Auto-detect stack or prompt for intent
-# ---------------------------------------------------------------------------
 $script:Recommendations = @()
 if (-not ($SkipInstructions -and $SkipHooks -and $SkipWorkflows -and $SkipAgents)) {
     $repoFileCount = (Get-ChildItem $RepoPath -Recurse -File -ErrorAction SilentlyContinue |
@@ -263,11 +262,9 @@ if (-not ($SkipInstructions -and $SkipHooks -and $SkipWorkflows -and $SkipAgents
     }
 }
 
-# ---------------------------------------------------------------------------
-# Helper: interactive picker
-#   Returns array of selected names.
-#   preSelected: comma-separated list for non-interactive mode.
-# ---------------------------------------------------------------------------
+#endregion # Path validation and stack detection
+
+#region Helpers
 function Select-Items {
     param(
         [string]$Category,
@@ -344,9 +341,6 @@ function Select-Items {
     return @($Items | Where-Object { $indices -contains ([Array]::IndexOf($Items, $_) + 1) })
 }
 
-# ---------------------------------------------------------------------------
-# Helper: copy a single flat file to a target directory
-# ---------------------------------------------------------------------------
 function Install-File {
     param([string]$Src, [string]$DestDir)
     if (-not $DryRun -and -not (Test-Path $DestDir)) {
@@ -361,9 +355,6 @@ function Install-File {
     if ($dstHash) { return 'updated' } else { return 'added' }
 }
 
-# ---------------------------------------------------------------------------
-# Helper: copy an entire subdirectory (for hooks and skills)
-# ---------------------------------------------------------------------------
 function Install-Directory {
     param([string]$SrcDir, [string]$DestParent)
     $name    = Split-Path $SrcDir -Leaf
@@ -389,9 +380,6 @@ function Install-Directory {
     return [pscustomobject]@{ Added = $added; Updated = $updated; Unchanged = $unchanged }
 }
 
-# ---------------------------------------------------------------------------
-# Helper: read description from a file's frontmatter or first heading
-# ---------------------------------------------------------------------------
 function Get-Description([string]$FilePath) {
     try {
         $lines = Get-Content $FilePath -TotalCount 20 -ErrorAction SilentlyContinue
@@ -409,9 +397,9 @@ function Get-Description([string]$FilePath) {
     return ''
 }
 
-# ---------------------------------------------------------------------------
-# Build catalogue entries for each category
-# ---------------------------------------------------------------------------
+#endregion # Helpers
+
+#region Catalogue builders
 $totalInstalled = 0
 
 function Build-FlatCatalogue([string]$CatDir, [string]$DestDir, [string]$Pattern) {
@@ -443,9 +431,9 @@ function Build-DirCatalogue([string]$CatDir, [string]$DestDir) {
     } | Sort-Object Name
 }
 
-# ---------------------------------------------------------------------------
-# AGENTS
-# ---------------------------------------------------------------------------
+#endregion # Catalogue builders
+
+#region Agents
 if (-not $SkipAgents) {
     $destDir   = Join-Path $GithubDir 'agents'
     $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'agents') $destDir '\.agent\.md$'
@@ -459,9 +447,9 @@ if (-not $SkipAgents) {
     }
 }
 
-# ---------------------------------------------------------------------------
-# INSTRUCTIONS
-# ---------------------------------------------------------------------------
+#endregion # Agents
+
+#region Instructions
 if (-not $SkipInstructions) {
     $destDir  = Join-Path $GithubDir 'instructions'
     $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'instructions') $destDir '\.instructions\.md$'
@@ -475,9 +463,9 @@ if (-not $SkipInstructions) {
     }
 }
 
-# ---------------------------------------------------------------------------
-# HOOKS
-# ---------------------------------------------------------------------------
+#endregion # Instructions
+
+#region Hooks
 if (-not $SkipHooks) {
     $destDir   = Join-Path $GithubDir 'hooks'
     $catalogue  = Build-DirCatalogue (Join-Path $SourceRoot 'hooks') $destDir
@@ -491,9 +479,9 @@ if (-not $SkipHooks) {
     }
 }
 
-# ---------------------------------------------------------------------------
-# WORKFLOWS
-# ---------------------------------------------------------------------------
+#endregion # Hooks
+
+#region Workflows
 if (-not $SkipWorkflows) {
     $destDir  = Join-Path $GithubDir 'workflows'
     $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'workflows') $destDir '\.md$'
@@ -507,9 +495,9 @@ if (-not $SkipWorkflows) {
     }
 }
 
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
+#endregion # Workflows
+
+#region Summary
 Write-Host ""
 if ($DryRun) {
     Log "Dry run complete. Re-run without -DryRun to apply." 'WARN'
@@ -517,3 +505,4 @@ if ($DryRun) {
     Log "$totalInstalled resource(s) installed/updated in $GithubDir" 'SUCCESS'
     Log "Tip: commit .github/ to share Copilot resources with your team (agents, instructions, hooks, workflows)."
 }
+#endregion # Summary

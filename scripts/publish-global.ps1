@@ -45,6 +45,7 @@ Notes:
     [switch]$DryRun
 )
 
+#region Initialisation
 $ErrorActionPreference = 'Stop'
 
 function Log($m, [string]$level = 'INFO') {
@@ -56,9 +57,9 @@ function Log($m, [string]$level = 'INFO') {
 $AgentsSource = Join-Path $SourceRoot 'agents'
 $SkillsSource = Join-Path $SourceRoot 'skills'
 
-# ---------------------------------------------------------------------------
-# AGENTS
-# ---------------------------------------------------------------------------
+#endregion # Initialisation
+
+#region Agents
 if (-not $SkipAgents) {
     if (-not (Test-Path $AgentsSource)) {
         Log "Agents source not found: $AgentsSource (run sync-awesome-copilot.ps1 first)" 'WARN'
@@ -122,9 +123,9 @@ if (-not $SkipAgents) {
     }
 }
 
-# ---------------------------------------------------------------------------
-# SKILLS
-# ---------------------------------------------------------------------------
+#endregion # Agents
+
+#region Skills
 if (-not $SkipSkills) {
     if (-not (Test-Path $SkillsSource)) {
         Log "Skills source not found: $SkillsSource (run sync-awesome-copilot.ps1 first)" 'WARN'
@@ -200,6 +201,8 @@ if (-not $SkipSkills) {
         }
     }
 }
+
+#endregion # Skills
 
 if ($DryRun) { Log "[DryRun] No changes made." }
 else { Log "Global publish complete." }

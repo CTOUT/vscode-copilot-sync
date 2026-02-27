@@ -30,6 +30,7 @@ Usage:
     [string]$GitTool = 'auto'
 )
 
+#region Initialisation
 $ErrorActionPreference = 'Stop'
 
 $script:StartTime = Get-Date
@@ -58,9 +59,9 @@ $Global:LogFile = Join-Path $LogDir "sync-$RunId.log"
 
 Write-Log "Starting Awesome Copilot sync. Dest=$Dest Categories=$Categories"
 
-# ---------------------------------------------------------------------------
-# Tool detection — prefer gh (handles auth automatically), fall back to git
-# ---------------------------------------------------------------------------
+#endregion # Initialisation
+
+#region Tool detection
 function Resolve-GitTool {
     if ($GitTool -ne 'auto') {
         if (-not (Get-Command $GitTool -ErrorAction SilentlyContinue)) {
@@ -103,9 +104,9 @@ function Get-Sha256 {
     return (Get-FileHash -LiteralPath $FilePath -Algorithm SHA256).Hash.ToLower()
 }
 
-# ---------------------------------------------------------------------------
-# Clone (first run) or pull (subsequent runs)
-# ---------------------------------------------------------------------------
+#endregion # Tool detection
+
+#region Clone or pull
 $IsFirstRun = -not (Test-Path (Join-Path $Dest '.git'))
 
 if ($Plan) {
@@ -155,9 +156,9 @@ if ($IsFirstRun) {
 
 Check-Timeout
 
-# ---------------------------------------------------------------------------
-# Scan local files — compare against previous manifest for change counts
-# ---------------------------------------------------------------------------
+#endregion # Clone or pull
+
+#region File scan and change detection
 $NewItems  = @()
 $Added = 0; $Updated = 0; $Unchanged = 0; $Removed = 0
 $DestResolved = (Resolve-Path $Dest).Path
@@ -201,9 +202,9 @@ if ($PrevManifest -and $PrevManifest.items) {
     }
 }
 
-# ---------------------------------------------------------------------------
-# Write manifest + status
-# ---------------------------------------------------------------------------
+#endregion # File scan
+
+#region Write manifest and status
 $Manifest = [pscustomobject]@{
     version    = 1
     repo       = $RepoSlug
@@ -228,9 +229,13 @@ $Manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $ManifestPath -Encoding 
 
 Write-Log "Summary Added=$Added Updated=$Updated Removed=$Removed Unchanged=$Unchanged" 'SUCCESS'
 
-# Log retention
+#endregion # Write manifest
+
+#region Log retention
 Get-ChildItem $LogDir -Filter 'sync-*.log' |
     Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$LogRetentionDays) } |
     ForEach-Object { Remove-Item $_.FullName -Force }
+
+#endregion # Log retention
 
 exit 0

@@ -41,6 +41,7 @@ Usage:
     [switch]$DryRun
 )
 
+#region Initialisation
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Join-Path $PSScriptRoot 'scripts'
 
@@ -73,9 +74,9 @@ if ($InstallTask -and $UninstallTask) {
 # Task management implies no interactive repo setup
 if ($InstallTask -or $UninstallTask) { $SkipInit = $true }
 
-# ---------------------------------------------------------------------------
-# STEP 1: Sync
-# ---------------------------------------------------------------------------
+#endregion # Initialisation
+
+#region Step 1 — Sync
 if (-not $SkipSync) {
     Step "Sync from github/awesome-copilot"
     $syncArgs = @{}
@@ -84,9 +85,9 @@ if (-not $SkipSync) {
     if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Log "Sync failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
 }
 
-# ---------------------------------------------------------------------------
-# STEP 2: Publish globally
-# ---------------------------------------------------------------------------
+#endregion # Step 1
+
+#region Step 2 — Publish globally
 if (-not $SkipPublish) {
     Step "Publish agents + skills globally"
     $publishArgs = @{}
@@ -94,9 +95,9 @@ if (-not $SkipPublish) {
     & (Join-Path $ScriptDir 'publish-global.ps1') @publishArgs
 }
 
-# ---------------------------------------------------------------------------
-# STEP 3: Init repo (prompted)
-# ---------------------------------------------------------------------------
+#endregion # Step 2
+
+#region Step 3 — Init repo
 if (-not $SkipInit) {
     Step "Init repo"
     Write-Host "  Add agents/instructions/hooks/workflows to .github/ in the current repo?" -ForegroundColor Yellow
@@ -111,9 +112,9 @@ if (-not $SkipInit) {
     }
 }
 
-# ---------------------------------------------------------------------------
-# STEP 4: Scheduled task
-# ---------------------------------------------------------------------------
+#endregion # Step 3
+
+#region Step 4 — Scheduled task
 if ($InstallTask) {
     Step "Install scheduled task"
     if ($DryRun) {
@@ -144,6 +145,8 @@ if ($UninstallTask) {
         & (Join-Path $ScriptDir 'uninstall-scheduled-task.ps1')
     }
 }
+
+#endregion # Step 4
 
 Write-Host ""
 Log "Done." 'SUCCESS'
