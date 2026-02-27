@@ -35,14 +35,15 @@ if ($IncludePlugins -and ($Categories -notmatch 'plugins')) {
 $int = Parse-Interval $Every
 
 # Primary sync action
-$syncArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`" -Dest `"$Dest`" -Categories `"$Categories`" -Quiet"
-$actions = @()
-$actions += New-ScheduledTaskAction -Execute $PwshPath -Argument $syncArgs
+$ScriptDir  = Split-Path -Parent $ScriptPath
+$syncArgs   = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`" -Dest `"$Dest`" -Categories `"$Categories`" -Quiet"
+$actions    = @()
+$actions   += New-ScheduledTaskAction -Execute $PwshPath -Argument $syncArgs -WorkingDirectory $ScriptDir
 
 if (-not $SkipPublishGlobal) {
     # publish-global runs after sync: updates VS Code agents folder and ~/.copilot/skills/
-    $publishArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$PublishGlobalScriptPath`" -SourceRoot `"$Dest`""
-    $actions += New-ScheduledTaskAction -Execute $PwshPath -Argument $publishArgs
+    $publishArgs  = "-NoProfile -ExecutionPolicy Bypass -File `"$PublishGlobalScriptPath`" -SourceRoot `"$Dest`""
+    $actions     += New-ScheduledTaskAction -Execute $PwshPath -Argument $publishArgs -WorkingDirectory $ScriptDir
 }
 $Trigger = if ($int.Type -eq 'HOURLY') { New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval ([TimeSpan]::FromHours($int.Modifier)) -RepetitionDuration ([TimeSpan]::FromDays(3650)) } else { New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval ([TimeSpan]::FromMinutes($int.Modifier)) -RepetitionDuration ([TimeSpan]::FromDays(3650)) }
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 20)
