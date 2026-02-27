@@ -33,6 +33,9 @@ Notes:
     at https://github.com/github/awesome-copilot.
   - The selection UI uses Out-GridView where available (Windows GUI, filterable,
     multi-select). Falls back to a numbered console menu automatically.
+  - Auto-detects language/framework from repo file signals and pre-marks
+    recommended instructions/hooks/workflows with ★ in the picker.
+  - For new/empty repos, prompts for intent one question at a time.
 #>
 [CmdletBinding()] param(
     [string]$RepoPath      = (Get-Location).Path,
@@ -55,6 +58,149 @@ function Log($m, [string]$level = 'INFO') {
 }
 
 # ---------------------------------------------------------------------------
+# Detect language/framework signals from repo files
+# ---------------------------------------------------------------------------
+function Detect-RepoStack {
+    param([string]$RepoPath)
+
+    $recs = [System.Collections.Generic.List[string]]::new()
+    $files = Get-ChildItem $RepoPath -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '\\(\.git|node_modules|\.venv|bin|obj)\\' }
+
+    $exts      = $files | ForEach-Object { $_.Extension.ToLower() } | Sort-Object -Unique
+    $names     = $files | ForEach-Object { $_.Name } | Sort-Object -Unique
+    $hasDotnet = $exts -contains '.cs' -or ($names | Where-Object { $_ -match '\.(csproj|sln)$' })
+    $hasPy     = $exts -contains '.py' -or ($names -contains 'requirements.txt') -or ($names -contains 'pyproject.toml')
+    $hasTs     = $exts -contains '.ts' -or ($names -contains 'tsconfig.json')
+    $hasGo     = $exts -contains '.go' -or ($names -contains 'go.mod')
+    $hasRs     = $exts -contains '.rs' -or ($names -contains 'Cargo.toml')
+    $hasJava   = $exts -contains '.java' -or ($names -contains 'pom.xml') -or ($names | Where-Object { $_ -eq 'build.gradle' })
+    $hasKt     = $exts -contains '.kt'
+    $hasTf     = $exts -contains '.tf'
+    $hasBicep  = $exts -contains '.bicep'
+    $hasPs1    = $exts -contains '.ps1'
+
+    if ($hasDotnet)            { $recs.Add('csharp'); $recs.Add('dotnet-architecture-good-practices') }
+    if ($hasPy)                { $recs.Add('python') }
+    if ($hasTs)                { $recs.Add('typescript-5-es2022') }
+    if ($hasGo)                { $recs.Add('go') }
+    if ($hasRs)                { $recs.Add('rust') }
+    if ($hasJava -or $hasKt)   { $recs.Add('java') }
+    if ($hasTf)                { $recs.Add('terraform') }
+    if ($hasBicep)             { $recs.Add('bicep-code-best-practices') }
+    if ($hasPs1)               { $recs.Add('powershell') }
+
+    # Docker
+    if (($names -contains 'Dockerfile') -or ($names | Where-Object { $_ -match '^docker-compose\.yml$' })) {
+        $recs.Add('containerization-docker-best-practices')
+    }
+
+    # GitHub Actions workflows
+    $ghWorkflows = $files | Where-Object { $_.FullName -match '\\\.github\\workflows\\' -and $_.Extension -eq '.yml' }
+    if ($ghWorkflows) { $recs.Add('github-actions-ci-cd-best-practices') }
+
+    # Playwright
+    $hasPlaywright = $files | Where-Object { $_.Name -match '^playwright\.config\.' }
+    if ($hasPlaywright) {
+        if ($hasDotnet)   { $recs.Add('playwright-dotnet') }
+        elseif ($hasPy)   { $recs.Add('playwright-python') }
+        else              { $recs.Add('playwright-typescript') }
+    }
+
+    # package.json framework detection
+    $pkgJson = $files | Where-Object { $_.Name -eq 'package.json' } | Select-Object -First 1
+    if ($pkgJson) {
+        try {
+            $pkg = Get-Content $pkgJson.FullName -Raw | ConvertFrom-Json -ErrorAction Stop
+            $allDeps = @()
+            if ($pkg.dependencies)    { $allDeps += $pkg.dependencies.PSObject.Properties.Name }
+            if ($pkg.devDependencies) { $allDeps += $pkg.devDependencies.PSObject.Properties.Name }
+            if ($allDeps -contains 'react')    { $recs.Add('reactjs') }
+            if ($allDeps -contains 'next')     { $recs.Add('nextjs') }
+            if ($allDeps | Where-Object { $_ -match '^@angular/' }) { $recs.Add('angular') }
+            if ($allDeps -contains 'vue')      { $recs.Add('vuejs3') }
+            if ($allDeps -contains 'svelte')   { $recs.Add('svelte') }
+            if ($allDeps | Where-Object { $_ -match '^@nestjs/' }) { $recs.Add('nestjs') }
+        } catch {}
+    }
+
+    $recs.Add('security-and-owasp')
+    $recs.Add('code-review-generic')
+
+    return @($recs | Sort-Object -Unique)
+}
+
+# ---------------------------------------------------------------------------
+# Prompt for intent when no signals detected (new/empty repo)
+# ---------------------------------------------------------------------------
+function Prompt-RepoIntent {
+    $recs = [System.Collections.Generic.List[string]]::new()
+
+    Write-Host ""
+    Write-Host "  Q1: What is the primary language or stack?" -ForegroundColor Yellow
+    Write-Host "    1. C# / .NET"
+    Write-Host "    2. Python"
+    Write-Host "    3. TypeScript / JavaScript"
+    Write-Host "    4. Go"
+    Write-Host "    5. Java / Kotlin"
+    Write-Host "    6. Rust"
+    Write-Host "    7. PowerShell"
+    Write-Host "    8. Terraform / Bicep (Infrastructure)"
+    Write-Host "    9. Other"
+    Write-Host "  Enter number: " -NoNewline -ForegroundColor Yellow
+    $q1 = (Read-Host).Trim()
+    switch ($q1) {
+        '1' { $recs.Add('csharp'); $recs.Add('dotnet-architecture-good-practices') }
+        '2' { $recs.Add('python') }
+        '3' { $recs.Add('typescript-5-es2022') }
+        '4' { $recs.Add('go') }
+        '5' { $recs.Add('java') }
+        '6' { $recs.Add('rust') }
+        '7' { $recs.Add('powershell') }
+        '8' { $recs.Add('terraform'); $recs.Add('bicep-code-best-practices') }
+    }
+
+    Write-Host ""
+    Write-Host "  Q2: What type of project is this?" -ForegroundColor Yellow
+    Write-Host "    1. Web API / REST service"
+    Write-Host "    2. Web application (frontend)"
+    Write-Host "    3. CLI tool"
+    Write-Host "    4. Library / SDK"
+    Write-Host "    5. Data pipeline / ML"
+    Write-Host "    6. Infrastructure / DevOps"
+    Write-Host "    7. Documentation / Content"
+    Write-Host "  Enter number: " -NoNewline -ForegroundColor Yellow
+    $null = Read-Host  # no mapping yet, reserved for future extensibility
+
+    Write-Host ""
+    Write-Host "  Q3: Any specific concerns? (comma-separated, e.g. 1,3)" -ForegroundColor Yellow
+    Write-Host "    1. Security / OWASP"
+    Write-Host "    2. Accessibility (a11y)"
+    Write-Host "    3. Testing / Playwright"
+    Write-Host "    4. Performance"
+    Write-Host "    5. Docker / Containers"
+    Write-Host "    6. CI/CD / GitHub Actions"
+    Write-Host "    7. None"
+    Write-Host "  Enter numbers: " -NoNewline -ForegroundColor Yellow
+    $q3 = (Read-Host).Trim()
+    if ($q3 -and $q3 -ne '7') {
+        foreach ($part in $q3.Split(',')) {
+            switch ($part.Trim()) {
+                '1' { $recs.Add('security-and-owasp') }
+                '2' { $recs.Add('a11y') }
+                '3' { $recs.Add('playwright-typescript') }
+                '4' { $recs.Add('performance-optimization') }
+                '5' { $recs.Add('containerization-docker-best-practices') }
+                '6' { $recs.Add('github-actions-ci-cd-best-practices') }
+            }
+        }
+    }
+
+    $recs.Add('code-review-generic')
+    return @($recs | Sort-Object -Unique)
+}
+
+# ---------------------------------------------------------------------------
 # Validate paths
 # ---------------------------------------------------------------------------
 if (-not (Test-Path $RepoPath)) {
@@ -71,6 +217,30 @@ Log "Target repo  : $RepoPath"
 Log "Copilot cache: $SourceRoot"
 
 # ---------------------------------------------------------------------------
+# Auto-detect stack or prompt for intent
+# ---------------------------------------------------------------------------
+$script:Recommendations = @()
+if (-not ($SkipInstructions -and $SkipHooks -and $SkipWorkflows)) {
+    $repoFileCount = (Get-ChildItem $RepoPath -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '\\(\.git|node_modules|\.venv|bin|obj)\\' } |
+        Measure-Object).Count
+
+    if ($repoFileCount -gt 3) {
+        Log "Scanning repo for language/framework signals..."
+        $script:Recommendations = Detect-RepoStack -RepoPath $RepoPath
+        if ($script:Recommendations.Count -gt 0) {
+            Log "Detected: $($script:Recommendations -join ', ')"
+        } else {
+            Log "No signals detected." 'WARN'
+            $script:Recommendations = Prompt-RepoIntent
+        }
+    } else {
+        Log "New or empty repo detected — prompting for intent."
+        $script:Recommendations = Prompt-RepoIntent
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Helper: interactive picker
 #   Returns array of selected names.
 #   preSelected: comma-separated list for non-interactive mode.
@@ -79,7 +249,8 @@ function Select-Items {
     param(
         [string]$Category,
         [object[]]$Items,          # objects with Name, Description, AlreadyInstalled
-        [string]$PreSelected = ''
+        [string]$PreSelected = '',
+        [string[]]$Recommended = @()
     )
 
     if ($Items.Count -eq 0) {
@@ -95,6 +266,11 @@ function Select-Items {
         return @($selected)
     }
 
+    # Attach IsRecommended and sort: recommended first, then alphabetical within groups
+    $Items = $Items | ForEach-Object {
+        $_ | Add-Member -NotePropertyName 'IsRecommended' -NotePropertyValue ($Recommended -contains $_.Name) -PassThru -Force
+    } | Sort-Object @{ E={ if ($_.IsRecommended) { 0 } else { 1 } } }, Name
+
     Write-Host ""
     Write-Host "  === $Category ===" -ForegroundColor Yellow
     Write-Host "  Already installed items are marked with [*]" -ForegroundColor DarkGray
@@ -105,21 +281,22 @@ function Select-Items {
 
     if ($ogvAvailable) {
         $display = $Items | Select-Object `
-            @{ N='[*] Installed'; E={ if ($_.AlreadyInstalled) { 'YES' } else { '' } } },
-            @{ N='Name';          E={ $_.Name } },
-            @{ N='Description';   E={ $_.Description } }
+            @{ N='★';         E={ if ($_.IsRecommended) { '★' } else { '' } } },
+            @{ N='Installed'; E={ if ($_.AlreadyInstalled) { '[*]' } else { '' } } },
+            @{ N='Name';      E={ $_.Name } },
+            @{ N='Description'; E={ $_.Description } }
 
-        $picked = $display | Out-GridView -Title "Select $Category to install (multi-select with Ctrl/Shift, then OK)" -PassThru
+        $picked = $display | Out-GridView -Title "Select $Category to install   ★ = Recommended   [*] = Already installed" -PassThru
         if (-not $picked) { return @() }
-        $pickedNames = @($picked | ForEach-Object { $_.'Name' })
+        $pickedNames = @($picked | ForEach-Object { $_.Name })
         return @($Items | Where-Object { $pickedNames -contains $_.Name })
     }
 
     # Fallback: numbered console menu
     Write-Host ""
     for ($i = 0; $i -lt $Items.Count; $i++) {
-        $mark = if ($Items[$i].AlreadyInstalled) { '[*]' } else { '   ' }
-        Write-Host ("  {0,3}. {1} {2}" -f ($i+1), $mark, $Items[$i].Name) -ForegroundColor $(if ($Items[$i].AlreadyInstalled) { 'DarkCyan' } else { 'White' })
+        $mark = if ($Items[$i].AlreadyInstalled) { '[*]' } elseif ($Items[$i].IsRecommended) { '[★]' } else { '   ' }
+        Write-Host ("  {0,3}. {1} {2}" -f ($i+1), $mark, $Items[$i].Name) -ForegroundColor $(if ($Items[$i].AlreadyInstalled) { 'DarkCyan' } elseif ($Items[$i].IsRecommended) { 'Yellow' } else { 'White' })
         if ($Items[$i].Description) {
             Write-Host ("       {0}" -f $Items[$i].Description) -ForegroundColor DarkGray
         }
@@ -248,7 +425,7 @@ function Build-DirCatalogue([string]$CatDir, [string]$DestDir) {
 if (-not $SkipInstructions) {
     $destDir  = Join-Path $GithubDir 'instructions'
     $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'instructions') $destDir '\.instructions\.md$'
-    $selected  = Select-Items -Category 'Instructions' -Items $catalogue -PreSelected $Instructions
+    $selected  = Select-Items -Category 'Instructions' -Items $catalogue -PreSelected $Instructions -Recommended $script:Recommendations
 
     foreach ($item in $selected) {
         $result = Install-File -Src $item.FullPath -DestDir $destDir
@@ -264,7 +441,7 @@ if (-not $SkipInstructions) {
 if (-not $SkipHooks) {
     $destDir   = Join-Path $GithubDir 'hooks'
     $catalogue  = Build-DirCatalogue (Join-Path $SourceRoot 'hooks') $destDir
-    $selected   = Select-Items -Category 'Hooks' -Items $catalogue -PreSelected $Hooks
+    $selected   = Select-Items -Category 'Hooks' -Items $catalogue -PreSelected $Hooks -Recommended $script:Recommendations
 
     foreach ($item in $selected) {
         $r = Install-Directory -SrcDir $item.FullPath -DestParent $destDir
@@ -280,7 +457,7 @@ if (-not $SkipHooks) {
 if (-not $SkipWorkflows) {
     $destDir  = Join-Path $GithubDir 'workflows'
     $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'workflows') $destDir '\.md$'
-    $selected  = Select-Items -Category 'Agentic Workflows' -Items $catalogue -PreSelected $Workflows
+    $selected  = Select-Items -Category 'Agentic Workflows' -Items $catalogue -PreSelected $Workflows -Recommended $script:Recommendations
 
     foreach ($item in $selected) {
         $result = Install-File -Src $item.FullPath -DestDir $destDir
