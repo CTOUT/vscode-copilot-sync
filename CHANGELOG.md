@@ -5,11 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-02-27
+
+### Fixed
+- `sync-awesome-copilot.ps1`: changed `$ErrorActionPreference` from `Inquire` to `Stop` — `Inquire` caused the script to hang waiting for interactive input when run as a scheduled task
+
+### Changed
+- `init-repo.ps1`: removed skills from per-repo initialisation; skills are globally available via `publish-global.ps1` (`~/.copilot/skills/`) and users should reference the source directly at [github/awesome-copilot](https://github.com/github/awesome-copilot) rather than committing point-in-time copies to repos
+
 ## [1.1.0] - 2026-02-26
 
 ### Added
 - `publish-global.ps1` — publishes agents to the VS Code user agents folder (via junction so sync updates are reflected immediately) and skills to `~/.copilot/skills/`; supports `-DryRun`, `-SkipAgents`, `-SkipSkills`, `-AgentsTarget`, `-SkillsTarget`
-- `init-repo.ps1` — interactive script to initialise a repo with per-repo resources (instructions, hooks, workflows, project-level skills); uses Out-GridView on Windows with a numbered console-menu fallback; supports `-RepoPath`, `-DryRun`, `-SkipInstructions`, `-SkipHooks`, `-SkipWorkflows`, `-SkipSkills`
+- `init-repo.ps1` — interactive script to initialise a repo with per-repo resources (instructions, hooks, workflows); uses Out-GridView on Windows with a numbered console-menu fallback; supports `-RepoPath`, `-DryRun`, `-SkipInstructions`, `-SkipHooks`, `-SkipWorkflows`
 
 ### Changed
 - Updated default sync categories to match current awesome-copilot repository structure:
