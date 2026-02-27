@@ -6,6 +6,7 @@ awesome-copilot cache into a target repository's .github/ folder.
 
 Resources installed here are project-specific (opt-in) rather than global:
 
+  Agents        --> .github/agents/*.agent.md
   Instructions  --> .github/instructions/*.instructions.md
   Hooks         --> .github/hooks/<hook-name>/   (full directory)
   Workflows     --> .github/workflows/*.md
@@ -18,10 +19,12 @@ Usage:
   .\init-repo.ps1 -RepoPath "C:\Projects\my-app"
 
   # Skip specific categories
+  .\init-repo.ps1 -SkipAgents -SkipHooks
   .\init-repo.ps1 -SkipHooks -SkipWorkflows
 
   # Non-interactive: specify items by name (comma-separated)
   .\init-repo.ps1 -Instructions "angular,dotnet-framework" -Hooks "session-logger"
+  .\init-repo.ps1 -Agents "devops-expert,se-security-reviewer"
   # Dry run - show what would be installed
   .\init-repo.ps1 -DryRun
 
@@ -41,9 +44,11 @@ Notes:
     [string]$RepoPath      = (Get-Location).Path,
     [string]$SourceRoot    = "$HOME/.awesome-copilot",
     [string]$Instructions  = '',   # Comma-separated names to pre-select (non-interactive)
+    [string]$Agents        = '',
     [string]$Hooks         = '',
     [string]$Workflows     = '',
     [switch]$SkipInstructions,
+    [switch]$SkipAgents,
     [switch]$SkipHooks,
     [switch]$SkipWorkflows,
     [switch]$DryRun
@@ -79,6 +84,7 @@ function Detect-RepoStack {
     $hasTf     = $exts -contains '.tf'
     $hasBicep  = $exts -contains '.bicep'
     $hasPs1    = $exts -contains '.ps1'
+    $hasJs     = $exts -contains '.js' -or $exts -contains '.jsx' -or ($names -contains 'package.json')
 
     if ($hasDotnet)            { $recs.Add('csharp'); $recs.Add('dotnet-architecture-good-practices') }
     if ($hasPy)                { $recs.Add('python') }
@@ -124,6 +130,21 @@ function Detect-RepoStack {
         } catch {}
     }
 
+    # Agent recommendations (name without .agent.md extension)
+    if ($hasPs1)               { $recs.Add('devops-expert'); $recs.Add('github-actions-expert') }
+    if ($hasDotnet)            { $recs.Add('CSharpExpert'); $recs.Add('expert-dotnet-software-engineer') }
+    if ($hasPy)                { $recs.Add('python-mcp-expert') }
+    if ($hasTs -or $hasJs)     { $recs.Add('typescript-mcp-expert') }
+    if ($hasGo)                { $recs.Add('go-mcp-expert') }
+    if ($hasRs)                { $recs.Add('rust-mcp-expert') }
+    if ($hasJava -or $hasKt)   { $recs.Add('java-mcp-expert') }
+    if (($names -contains 'Dockerfile') -or ($names | Where-Object { $_ -match '^docker-compose\.yml$' })) { $recs.Add('platform-sre-kubernetes') }
+    if ($ghWorkflows)          { $recs.Add('github-actions-expert') }
+    if ($hasPlaywright)        { $recs.Add('playwright-tester') }
+    # Always recommend for all repos
+    $recs.Add('se-security-reviewer')
+    $recs.Add('se-technical-writer')
+
     $recs.Add('security-and-owasp')
     $recs.Add('code-review-generic')
 
@@ -150,13 +171,13 @@ function Prompt-RepoIntent {
     Write-Host "  Enter number: " -NoNewline -ForegroundColor Yellow
     $q1 = (Read-Host).Trim()
     switch ($q1) {
-        '1' { $recs.Add('csharp'); $recs.Add('dotnet-architecture-good-practices') }
-        '2' { $recs.Add('python') }
-        '3' { $recs.Add('typescript-5-es2022') }
-        '4' { $recs.Add('go') }
-        '5' { $recs.Add('java') }
-        '6' { $recs.Add('rust') }
-        '7' { $recs.Add('powershell') }
+        '1' { $recs.Add('csharp'); $recs.Add('dotnet-architecture-good-practices'); $recs.Add('CSharpExpert'); $recs.Add('expert-dotnet-software-engineer') }
+        '2' { $recs.Add('python'); $recs.Add('python-mcp-expert') }
+        '3' { $recs.Add('typescript-5-es2022'); $recs.Add('typescript-mcp-expert') }
+        '4' { $recs.Add('go'); $recs.Add('go-mcp-expert') }
+        '5' { $recs.Add('java'); $recs.Add('java-mcp-expert') }
+        '6' { $recs.Add('rust'); $recs.Add('rust-mcp-expert') }
+        '7' { $recs.Add('powershell'); $recs.Add('devops-expert'); $recs.Add('github-actions-expert') }
         '8' { $recs.Add('terraform'); $recs.Add('bicep-code-best-practices') }
     }
 
@@ -188,14 +209,16 @@ function Prompt-RepoIntent {
             switch ($part.Trim()) {
                 '1' { $recs.Add('security-and-owasp') }
                 '2' { $recs.Add('a11y') }
-                '3' { $recs.Add('playwright-typescript') }
+                '3' { $recs.Add('playwright-typescript'); $recs.Add('playwright-tester') }
                 '4' { $recs.Add('performance-optimization') }
-                '5' { $recs.Add('containerization-docker-best-practices') }
-                '6' { $recs.Add('github-actions-ci-cd-best-practices') }
+                '5' { $recs.Add('containerization-docker-best-practices'); $recs.Add('platform-sre-kubernetes') }
+                '6' { $recs.Add('github-actions-ci-cd-best-practices'); $recs.Add('github-actions-expert') }
             }
         }
     }
 
+    $recs.Add('se-security-reviewer')
+    $recs.Add('se-technical-writer')
     $recs.Add('code-review-generic')
     return @($recs | Sort-Object -Unique)
 }
@@ -220,7 +243,7 @@ Log "Copilot cache: $SourceRoot"
 # Auto-detect stack or prompt for intent
 # ---------------------------------------------------------------------------
 $script:Recommendations = @()
-if (-not ($SkipInstructions -and $SkipHooks -and $SkipWorkflows)) {
+if (-not ($SkipInstructions -and $SkipHooks -and $SkipWorkflows -and $SkipAgents)) {
     $repoFileCount = (Get-ChildItem $RepoPath -Recurse -File -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -notmatch '\\(\.git|node_modules|\.venv|bin|obj)\\' } |
         Measure-Object).Count
@@ -420,6 +443,22 @@ function Build-DirCatalogue([string]$CatDir, [string]$DestDir) {
 }
 
 # ---------------------------------------------------------------------------
+# AGENTS
+# ---------------------------------------------------------------------------
+if (-not $SkipAgents) {
+    $destDir   = Join-Path $GithubDir 'agents'
+    $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'agents') $destDir '\.agent\.md$'
+    $selected  = Select-Items -Category 'Agents' -Items $catalogue -PreSelected $Agents -Recommended $script:Recommendations
+
+    foreach ($item in $selected) {
+        $result = Install-File -Src $item.FullPath -DestDir $destDir
+        $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
+        Log "$verb  agent: $($item.FileName)"
+        if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
+    }
+}
+
+# ---------------------------------------------------------------------------
 # INSTRUCTIONS
 # ---------------------------------------------------------------------------
 if (-not $SkipInstructions) {
@@ -475,5 +514,5 @@ if ($DryRun) {
     Log "Dry run complete. Re-run without -DryRun to apply." 'WARN'
 } else {
     Log "$totalInstalled resource(s) installed/updated in $GithubDir" 'SUCCESS'
-    Log "Tip: commit .github/ to share these with your team."
+    Log "Tip: commit .github/ to share Copilot resources with your team (agents, instructions, hooks, workflows)."
 }
