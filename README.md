@@ -17,9 +17,9 @@ These scripts automate the management of VS Code Copilot custom agents, instruct
 |---|---|---|
 | **Agents** | 🌐 Global | `%APPDATA%\Code\User\prompts\` — available in Copilot Chat across all workspaces |
 | **Skills** | 🌐 Global | `~/.copilot/skills/` — loaded on-demand by Copilot coding agent & CLI |
-| **Instructions** | 📁 Per-repo | `.github/instructions/` — chosen via `init-repo.ps1` |
-| **Hooks** | 📁 Per-repo | `.github/hooks/<name>/` — chosen via `init-repo.ps1` |
-| **Workflows** | 📁 Per-repo | `.github/workflows/` — chosen via `init-repo.ps1` |
+| **Instructions** | 📁 Per-repo | `.github/instructions/` — chosen via `scripts/init-repo.ps1` |
+| **Hooks** | 📁 Per-repo | `.github/hooks/<name>/` — chosen via `scripts/init-repo.ps1` |
+| **Workflows** | 📁 Per-repo | `.github/workflows/` — chosen via `scripts/init-repo.ps1` |
 
 ## 📋 Prerequisites
 
@@ -38,33 +38,31 @@ git clone <your-repo-url>
 cd scripts
 ```
 
-### 2. Run an Interactive Update
+### 2. Run the Configurator
 
-For first-time setup or an on-demand refresh, `update.ps1` chains all three steps:
+For first-time setup or an on-demand refresh, `configure.ps1` chains all steps:
 
 ```powershell
-# Sync from GitHub + publish globally + prompt to init current repo
-.\update.ps1
+# Sync from GitHub, publish globally, and optionally init your repo
+.\configure.ps1
 
-# Sync + publish only (skip init-repo prompt)
-.\update.ps1 -SkipInit
-
-# Re-publish only (cache already up to date)
-.\update.ps1 -SkipSync -SkipInit
-
-# Preview everything without writing any files
-.\update.ps1 -DryRun
+# Or step by step:
+.\configure.ps1 -SkipInit                      # sync + publish only
+.\configure.ps1 -SkipSync -SkipPublish -SkipInit -InstallTask  # install scheduled task
+.\configure.ps1 -DryRun                         # preview everything
 ```
 
 ### 3. Initialise a Repo (optional, interactive)
 
+> **Note:** `configure.ps1` also prompts for this step automatically — you only need to run it directly for a targeted repo setup.
+
 ```powershell
 # Run from inside any repo to add instructions/hooks/workflows
 cd C:\Projects\my-app
-.\init-repo.ps1
+.\scripts\init-repo.ps1
 
 # Or specify the path explicitly
-.\init-repo.ps1 -RepoPath "C:\Projects\my-app"
+.\scripts\init-repo.ps1 -RepoPath "C:\Projects\my-app"
 ```
 
 A selection UI will appear for each category (Out-GridView on Windows, or a numbered console menu). Items already installed in the repo are marked with `[*]`.
@@ -73,17 +71,14 @@ A selection UI will appear for each category (Out-GridView on Windows, or a numb
 
 ```powershell
 # Install a scheduled task that syncs + publishes globally every 4 hours
-.\install-scheduled-task.ps1
+.\configure.ps1 -SkipSync -SkipPublish -SkipInit -InstallTask
 
-# Skip the publish-global step if you manage that manually
-.\install-scheduled-task.ps1 -SkipPublishGlobal
+# Customize the interval
+.\configure.ps1 -SkipSync -SkipPublish -SkipInit -InstallTask -Every "2h"   # Every 2 hours
+.\configure.ps1 -SkipSync -SkipPublish -SkipInit -InstallTask -Every "30m"  # Every 30 minutes
 
-# Also include plugins (opt-in — large download)
-.\install-scheduled-task.ps1 -IncludePlugins
-
-# Or customize the interval
-.\install-scheduled-task.ps1 -Every "2h"  # Every 2 hours
-.\install-scheduled-task.ps1 -Every "30m" # Every 30 minutes
+# Or run it directly (called internally by configure.ps1)
+.\scripts\install-scheduled-task.ps1 -Every "2h"
 ```
 
 ## 📁 What Gets Created
@@ -106,33 +101,38 @@ $HOME\.awesome-copilot\          # Local cache
 
 ## 📜 Scripts Overview
 
-### `update.ps1`
-Interactive orchestrator that chains sync → publish → init-repo in one command.
+### `configure.ps1`
+Main entry point at the repo root. Chains sync → publish → init-repo in one command, and can install/uninstall the scheduled task via `-InstallTask` / `-UninstallTask` / `-Every` switches.
 
 **Features:**
 - Shows last sync time from the local cache manifest before running
 - Runs each step in sequence; any step can be skipped independently
-- Prompts before running `init-repo.ps1` (with option to skip via `-SkipInit`)
+- Prompts before running `scripts/init-repo.ps1` (with option to skip via `-SkipInit`)
 - `-DryRun` passes through to all child scripts
+- `-InstallTask` / `-UninstallTask` delegate to `scripts/install-scheduled-task.ps1` / `scripts/uninstall-scheduled-task.ps1`
+- `-Every` sets the scheduled task interval (e.g. `"2h"`, `"30m"`)
 
 **Usage:**
 ```powershell
 # Full update: sync + publish + prompt for init-repo
-.\update.ps1
+.\configure.ps1
 
 # Sync + publish only
-.\update.ps1 -SkipInit
+.\configure.ps1 -SkipInit
 
 # Re-publish only (skip sync if cache is already fresh)
-.\update.ps1 -SkipSync -SkipInit
+.\configure.ps1 -SkipSync -SkipInit
 
 # Preview without writing any files
-.\update.ps1 -DryRun
+.\configure.ps1 -DryRun
+
+# Install scheduled task
+.\configure.ps1 -SkipSync -SkipPublish -SkipInit -InstallTask -Every "2h"
 ```
 
 ---
 
-### `sync-awesome-copilot.ps1`
+### `scripts/sync-awesome-copilot.ps1`
 Syncs resources from the awesome-copilot GitHub repository.
 
 **Features:**
@@ -144,7 +144,7 @@ Syncs resources from the awesome-copilot GitHub repository.
 
 **Usage:**
 ```powershell
-.\sync-awesome-copilot.ps1
+.\scripts\sync-awesome-copilot.ps1
 ```
 
 Syncs these categories by default: `agents`, `instructions`, `workflows`, `hooks`, `skills`.
@@ -155,7 +155,7 @@ Add `plugins` or `cookbook` explicitly via `-Categories` for those larger opt-in
 
 ---
 
-### `publish-global.ps1`
+### `scripts/publish-global.ps1`
 Publishes agents globally to VS Code and skills to `~/.copilot/skills/`.
 
 **Features:**
@@ -166,21 +166,21 @@ Publishes agents globally to VS Code and skills to `~/.copilot/skills/`.
 
 **Usage:**
 ```powershell
-.\publish-global.ps1
+.\scripts\publish-global.ps1
 
 # Preview changes without applying
-.\publish-global.ps1 -DryRun
+.\scripts\publish-global.ps1 -DryRun
 
 # Skills only (agents already published)
-.\publish-global.ps1 -SkipAgents
+.\scripts\publish-global.ps1 -SkipAgents
 
 # Custom target path (e.g. named VS Code profile)
-.\publish-global.ps1 -AgentsTarget "$env:APPDATA\Code\User\profiles\Work\prompts"
+.\scripts\publish-global.ps1 -AgentsTarget "$env:APPDATA\Code\User\profiles\Work\prompts"
 ```
 
 ---
 
-### `init-repo.ps1`
+### `scripts/init-repo.ps1`
 Interactively initialises a repository with agents, instructions, hooks, and agentic workflows.
 
 **Features:**
@@ -195,51 +195,55 @@ Interactively initialises a repository with agents, instructions, hooks, and age
 **Usage:**
 ```powershell
 # Run inside a repo (uses current directory)
-.\init-repo.ps1
+.\scripts\init-repo.ps1
 
 # Target a specific repo
-.\init-repo.ps1 -RepoPath "C:\Projects\my-app"
+.\scripts\init-repo.ps1 -RepoPath "C:\Projects\my-app"
 
 # Preview without writing any files
-.\init-repo.ps1 -DryRun
+.\scripts\init-repo.ps1 -DryRun
 
 # Skip categories you don't need
-.\init-repo.ps1 -SkipHooks -SkipWorkflows
+.\scripts\init-repo.ps1 -SkipHooks -SkipWorkflows
 
 # Non-interactive: specify items by name
-.\init-repo.ps1 -Agents "devops-expert,se-security-reviewer" -Instructions "powershell"
+.\scripts\init-repo.ps1 -Agents "devops-expert,se-security-reviewer" -Instructions "powershell"
 ```
 
-### `install-scheduled-task.ps1`
-Creates a Windows scheduled task for automatic syncing and global publishing.
+### `scripts/install-scheduled-task.ps1`
+Creates a Windows scheduled task for automatic syncing and global publishing. Called internally by `configure.ps1 -InstallTask`.
 
 **Features:**
 - Runs `sync-awesome-copilot.ps1` then `publish-global.ps1` on a schedule
 - Default: every 6 hours
-- Customizable interval
+- Customizable interval via `-Every`
 
 **Usage:**
 ```powershell
-# Install with defaults (sync + publish-global every 4 hours)
-.\install-scheduled-task.ps1
+# Recommended: use configure.ps1
+.\configure.ps1 -SkipSync -SkipPublish -SkipInit -InstallTask
+
+# Or run directly
+.\scripts\install-scheduled-task.ps1
 
 # Custom intervals (supports h = hours, m = minutes)
-.\install-scheduled-task.ps1 -Every "2h"   # Every 2 hours
-.\install-scheduled-task.ps1 -Every "30m"  # Every 30 minutes
-
-# Sync only (skip publish-global)
-.\install-scheduled-task.ps1 -SkipPublishGlobal
+.\scripts\install-scheduled-task.ps1 -Every "2h"   # Every 2 hours
+.\scripts\install-scheduled-task.ps1 -Every "30m"  # Every 30 minutes
 
 # Check task status
 Get-ScheduledTask -TaskName "AwesomeCopilotSync"
 ```
 
-### `uninstall-scheduled-task.ps1`
-Removes the scheduled task.
+### `scripts/uninstall-scheduled-task.ps1`
+Removes the scheduled task. Called internally by `configure.ps1 -UninstallTask`.
 
 **Usage:**
 ```powershell
-.\uninstall-scheduled-task.ps1
+# Recommended: use configure.ps1
+.\configure.ps1 -UninstallTask
+
+# Or run directly
+.\scripts\uninstall-scheduled-task.ps1
 ```
 
 ## 🔧 Configuration

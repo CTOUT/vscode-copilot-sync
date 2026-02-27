@@ -7,10 +7,11 @@ This repository contains PowerShell scripts that sync Copilot resources from [gi
 Scripts are designed to be run in this order:
 
 ```
-sync-awesome-copilot.ps1       # 1. Fetch from GitHub API → ~/.awesome-copilot/
-publish-global.ps1             # 2. Publish agents + skills globally
-init-repo.ps1                  # 3. Interactive per-repo setup → .github/
-install-scheduled-task.ps1     # 4. Automate steps 1+2 on a schedule
+configure.ps1                      # Main entry point (chains all steps)
+scripts/sync-awesome-copilot.ps1   # 1. Fetch from GitHub API → ~/.awesome-copilot/
+scripts/publish-global.ps1         # 2. Publish agents + skills globally
+scripts/init-repo.ps1              # 3. Interactive per-repo setup → .github/
+scripts/install-scheduled-task.ps1 # 4. Automate steps 1+2 on a schedule
 ```
 
 **Resource scopes:**
@@ -85,7 +86,7 @@ $cacheDir = 'C:\Users\Someone\.awesome-copilot'
 
 ## Scheduled Task
 
-`install-scheduled-task.ps1` chains `sync-awesome-copilot.ps1 → publish-global.ps1` and registers a Windows Scheduled Task named `AwesomeCopilotSync`. The task runs under the current user context — the user must be logged in for it to execute.
+`configure.ps1 -InstallTask` chains `sync-awesome-copilot.ps1 → publish-global.ps1` and registers a Windows Scheduled Task named `AwesomeCopilotSync` (delegating to `scripts/install-scheduled-task.ps1`). The task runs under the current user context — the user must be logged in for it to execute.
 
 ## Contributing
 
