@@ -23,7 +23,7 @@ Usage:
   .\publish-global.ps1 -SkipAgents
 
   # Override VS Code agents folder (e.g. for a named profile)
-  .\publish-global.ps1 -AgentsTarget "$env:APPDATA\Code\User\profiles\MyProfile\agents"
+  .\publish-global.ps1 -AgentsTarget "$env:APPDATA\Code\User\profiles\MyProfile\prompts"
 
   # Dry run - show what would happen
   .\publish-global.ps1 -DryRun

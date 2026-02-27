@@ -52,7 +52,7 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
 
-Register-ScheduledTask -TaskName $TaskName -Action $actions -Trigger $Trigger -Settings $Settings -Description "Sync (and combine) Awesome Copilot resources" | Out-Null
+Register-ScheduledTask -TaskName $TaskName -Action $actions -Trigger $Trigger -Settings $Settings -Description "Sync and publish Awesome Copilot resources (agents, instructions, skills, hooks, workflows)" | Out-Null
 
 $post = if ($SkipPublishGlobal) { 'sync only' } else { 'sync + publish-global' }
 Write-Host "Scheduled task '$TaskName' created ($post). First run in ~1 minute, then every $Every." -ForegroundColor Green

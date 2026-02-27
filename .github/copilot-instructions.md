@@ -8,7 +8,7 @@ Scripts are designed to be run in this order:
 
 ```
 configure.ps1                      # Main entry point (chains all steps)
-scripts/sync-awesome-copilot.ps1   # 1. Fetch from GitHub API → ~/.awesome-copilot/
+scripts/sync-awesome-copilot.ps1   # 1. Clone/pull github/awesome-copilot → ~/.awesome-copilot/
 scripts/publish-global.ps1         # 2. Publish agents + skills globally
 scripts/init-repo.ps1              # 3. Interactive per-repo setup → .github/
 scripts/install-scheduled-task.ps1 # 4. Automate steps 1+2 on a schedule
@@ -64,25 +64,25 @@ $cacheDir = 'C:\Users\Someone\.awesome-copilot'
 
 ## External Dependencies
 
-- **GitHub API**: `https://api.github.com/repos/github/awesome-copilot/contents/{category}`
-- **`$env:GITHUB_TOKEN`** (optional): raises rate limit from 60 → 5000 req/hr. Set this when running the sync script manually or via scheduled task to avoid 403 errors.
+- **`gh` (GitHub CLI)**: preferred tool for cloning/pulling `github/awesome-copilot`; handles authentication automatically via `gh auth login`. Falls back to `git` if `gh` is not available.
 - **`Out-GridView`**: used in `init-repo.ps1` for interactive picking; automatically falls back to a numbered console menu if unavailable.
 
 ## Local Cache Structure
 
-`sync-awesome-copilot.ps1` writes to `~/.awesome-copilot/`:
+`sync-awesome-copilot.ps1` writes to `~/.awesome-copilot/` (a sparse git clone):
 ```
 ~/.awesome-copilot/
+  .git/            git metadata (managed automatically)
   agents/          *.agent.md
   instructions/    *.instructions.md
   workflows/       *.md
   hooks/           <hook-name>/ (directories)
   skills/          <skill-name>/ (directories)
-  manifest.json    tracks hashes/SHAs from last sync
-  last-success.json integrity marker
-  backups/         pre-delete zip snapshots (last 5 kept)
-  logs/            sync-<timestamp>.log (14 day retention)
+  manifest.json    file inventory with hashes (written after each sync)
+  status.txt       human-readable summary of last sync run
 ```
+
+Sync logs are written to a `logs/` folder in the working directory where the script was invoked (typically the repo root when run via `configure.ps1`).
 
 ## Scheduled Task
 

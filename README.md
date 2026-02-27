@@ -223,7 +223,7 @@ Creates a Windows scheduled task for automatic syncing and global publishing. Ca
 
 **Features:**
 - Runs `sync-awesome-copilot.ps1` then `publish-global.ps1` on a schedule
-- Default: every 6 hours
+- Default: every 4 hours
 - Customizable interval via `-Every`
 
 **Usage:**
@@ -256,41 +256,34 @@ Removes the scheduled task. Called internally by `configure.ps1 -UninstallTask`.
 
 ## 🔧 Configuration
 
-### GitHub Rate Limits
+### Authentication
 
-Without authentication, GitHub API allows 60 requests/hour. For heavy usage:
+The sync script uses `gh` (GitHub CLI) by default, which inherits authentication from `gh auth login` — no extra setup needed for most users.
 
-1. Create a [Personal Access Token](https://github.com/settings/tokens) (no scopes needed for public repos)
-2. Set environment variable:
+If only `git` is available, the sync targets a public repo (`github/awesome-copilot`) so no credentials are required. For private forks, configure git credentials as usual (`git config credential.helper`).
 
+To force a specific tool:
 ```powershell
-# Temporary (current session)
-$env:GITHUB_TOKEN = "ghp_your_token_here"
-
-# Permanent (user environment)
-[Environment]::SetEnvironmentVariable("GITHUB_TOKEN", "ghp_your_token_here", "User")
+.\scripts\sync-awesome-copilot.ps1 -GitTool git
+.\scripts\sync-awesome-copilot.ps1 -GitTool gh
 ```
 
 ### Custom Source Repository
 
-By default, scripts sync from `github/awesome-copilot`. To use a different source:
-
-Edit `sync-awesome-copilot.ps1` line 57:
+To sync from a fork or alternative repo, edit the two variables near the top of `scripts/sync-awesome-copilot.ps1`:
 ```powershell
-$Repo = "your-username/your-repo"
+$RepoSlug = 'your-username/your-repo'
+$RepoUrl  = 'https://github.com/your-username/your-repo.git'
 ```
 
 ## 🗂️ File Naming Conventions
 
 Resources follow naming patterns for automatic categorization:
 
-- `*.agent.md` - Custom agents
-- `*.instructions.md` - Custom instructions
-- `*.chatmode.md` - Chat mode definitions (legacy)
-- `*.prompt.md` - Prompt templates (legacy)
-
-Files without these suffixes in the combined folder are preserved (assumed to be user-created).
-Skills and hooks are directory-based packages and are not combined into the prompts folder.
+- `*.agent.md` — Custom agents
+- `*.instructions.md` — Custom instructions
+- `SKILL.md` (inside a named subdirectory) — Skills
+- Hook and workflow directories contain a mix of `.md`, `.json`, and `.sh` files
 
 ## 🛠️ Troubleshooting
 
@@ -311,8 +304,8 @@ Scripts automatically fall back to copying files. Check logs for details.
 # Check task status
 Get-ScheduledTask -TaskName "AwesomeCopilotSync" | Get-ScheduledTaskInfo
 
-# View logs
-Get-Content "$HOME\.awesome-copilot\logs\sync-*.log" -Tail 50
+# View logs (written to logs/ in the directory configure.ps1 was run from)
+Get-Content ".\logs\sync-*.log" | Select-Object -Last 50
 
 # Manually run task
 Start-ScheduledTask -TaskName "AwesomeCopilotSync"
@@ -325,10 +318,10 @@ Start-ScheduledTask -TaskName "AwesomeCopilotSync"
 
 ## 📊 Logs
 
-Sync logs are stored in `$HOME\.awesome-copilot\logs\`:
+Sync logs are written to a `logs/` folder in whichever directory you ran `configure.ps1` (or `sync-awesome-copilot.ps1`) from:
 ```powershell
 # View latest sync log
-Get-Content "$HOME\.awesome-copilot\logs\sync-*.log" -Tail 20
+Get-ChildItem .\logs\sync-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content
 ```
 
 Log format: `sync-YYYYMMDD-HHMMSS.log`
