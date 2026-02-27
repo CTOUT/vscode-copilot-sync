@@ -303,15 +303,16 @@ function Select-Items {
     try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
 
     if ($ogvAvailable) {
-        $display = $Items | Select-Object `
+        $none = [pscustomobject]@{ Rec=''; Installed=''; Name='-- none / skip --'; Description='Select this (or nothing) to install nothing' }
+        $display = @($none) + @($Items | Select-Object `
             @{ N='Rec';       E={ if ($_.IsRecommended) { '★' } else { '' } } },
             @{ N='Installed'; E={ if ($_.AlreadyInstalled) { '[*]' } else { '' } } },
             @{ N='Name';      E={ $_.Name } },
-            @{ N='Description'; E={ $_.Description } }
+            @{ N='Description'; E={ $_.Description } })
 
         $picked = $display | Out-GridView -Title "Select $Category to install   ★ = Recommended   [*] = Already installed" -PassThru
         if (-not $picked) { return @() }
-        $pickedNames = @($picked | ForEach-Object { $_.Name })
+        $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
         return @($Items | Where-Object { $pickedNames -contains $_.Name })
     }
 
