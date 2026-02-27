@@ -38,11 +38,22 @@ git clone <your-repo-url>
 cd scripts
 ```
 
-### 2. Publish Agents and Skills Globally
+### 2. Run an Interactive Update
+
+For first-time setup or an on-demand refresh, `update.ps1` chains all three steps:
 
 ```powershell
-# Publish agents to VS Code + skills to ~/.copilot/skills/
-.\publish-global.ps1
+# Sync from GitHub + publish globally + prompt to init current repo
+.\update.ps1
+
+# Sync + publish only (skip init-repo prompt)
+.\update.ps1 -SkipInit
+
+# Re-publish only (cache already up to date)
+.\update.ps1 -SkipSync -SkipInit
+
+# Preview everything without writing any files
+.\update.ps1 -DryRun
 ```
 
 ### 3. Initialise a Repo (optional, interactive)
@@ -94,6 +105,32 @@ $HOME\.awesome-copilot\          # Local cache
 ```
 
 ## 📜 Scripts Overview
+
+### `update.ps1`
+Interactive orchestrator that chains sync → publish → init-repo in one command.
+
+**Features:**
+- Shows last sync time from the local cache manifest before running
+- Runs each step in sequence; any step can be skipped independently
+- Prompts before running `init-repo.ps1` (with option to skip via `-SkipInit`)
+- `-DryRun` passes through to all child scripts
+
+**Usage:**
+```powershell
+# Full update: sync + publish + prompt for init-repo
+.\update.ps1
+
+# Sync + publish only
+.\update.ps1 -SkipInit
+
+# Re-publish only (skip sync if cache is already fresh)
+.\update.ps1 -SkipSync -SkipInit
+
+# Preview without writing any files
+.\update.ps1 -DryRun
+```
+
+---
 
 ### `sync-awesome-copilot.ps1`
 Syncs resources from the awesome-copilot GitHub repository.

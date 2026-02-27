@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.2] - 2026-02-27
 
 ### Added
+- `update.ps1` — interactive orchestrator that chains sync → publish-global → init-repo; each step independently skippable via `-SkipSync`, `-SkipPublish`, `-SkipInit`; `-DryRun` passes through to all child scripts; shows last sync timestamp from cache manifest before running
+
+### Added
 - `init-repo.ps1`: added Agents as a fourth interactive category (installs to `.github/agents/`)
 - `init-repo.ps1`: `Detect-RepoStack` — auto-detects language/framework from file signals and marks relevant items with ★ in the picker
 - `init-repo.ps1`: `Prompt-RepoIntent` — interactive fallback for new/empty repos; asks language, project type, and concerns
