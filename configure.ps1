@@ -120,7 +120,19 @@ if ($InstallTask) {
         Log "[DryRun] Would install scheduled task (every $Every): sync + publish-global"
     } else {
         $taskArgs = @{ Every = $Every }
-        & (Join-Path $ScriptDir 'install-scheduled-task.ps1') @taskArgs
+        $taskName = 'AwesomeCopilotSync'
+        $proceed  = $true
+        if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+            Log "Scheduled task '$taskName' already exists." 'WARN'
+            Write-Host "  Overwrite existing task? [Y] Yes   [N] No (default): " -NoNewline -ForegroundColor Yellow
+            if ((Read-Host).Trim() -match '^[Yy]') {
+                $taskArgs['Force'] = $true
+            } else {
+                Log "Task install skipped."
+                $proceed = $false
+            }
+        }
+        if ($proceed) { & (Join-Path $ScriptDir 'install-scheduled-task.ps1') @taskArgs }
     }
 }
 
