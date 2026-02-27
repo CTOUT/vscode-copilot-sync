@@ -170,6 +170,31 @@ if (-not $SkipSkills) {
         }
 
         Log "Skills: added=$added updated=$updated unchanged=$unchanged --> $SkillsTarget"
+
+        # Ensure VS Code is configured to discover skills
+        $vsCodeSettings = Join-Path $env:APPDATA 'Code\User\settings.json'
+        if (Test-Path $vsCodeSettings) {
+            try {
+                $s = Get-Content $vsCodeSettings -Raw | ConvertFrom-Json
+                $changed = $false
+                if (-not $s.'chat.useAgentSkills') {
+                    $s | Add-Member -NotePropertyName 'chat.useAgentSkills' -NotePropertyValue $true -Force
+                    $changed = $true
+                }
+                $loc = '~/.copilot/skills/**'
+                if (-not $s.'chat.agentSkillsLocations' -or -not $s.'chat.agentSkillsLocations'.$loc) {
+                    $locs = if ($s.'chat.agentSkillsLocations') { $s.'chat.agentSkillsLocations' } else { [pscustomobject]@{} }
+                    $locs | Add-Member -NotePropertyName $loc -NotePropertyValue $true -Force
+                    $s | Add-Member -NotePropertyName 'chat.agentSkillsLocations' -NotePropertyValue $locs -Force
+                    $changed = $true
+                }
+                if ($changed) {
+                    $s | ConvertTo-Json -Depth 5 | Set-Content $vsCodeSettings -Encoding UTF8
+                    Log "Configured chat.useAgentSkills and chat.agentSkillsLocations in VS Code settings"
+                }
+            }
+            catch { Log "Could not update VS Code settings: $_" 'WARN' }
+        }
     }
 }
 
