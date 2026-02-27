@@ -129,7 +129,7 @@ Main entry point at the repo root. Chains sync → publish → init-repo in one 
 .\configure.ps1 -DryRun
 
 # Install scheduled task
-.\configure.ps1 -SkipSync -SkipPublish -SkipInit -InstallTask -Every "2h"
+.\configure.ps1 -SkipSync -SkipPublish -InstallTask -Every "2h"
 ```
 
 ---

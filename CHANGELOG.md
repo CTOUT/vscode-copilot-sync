@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-02-27
+
+### Changed
+- `configure.ps1`: use `$PSScriptRoot` to locate the `scripts/` folder (replaces `$MyInvocation.MyCommand.Path` which behaves differently when dot-sourced)
+- `scripts/sync-awesome-copilot.ps1`: replace manual SHA256 with built-in `Get-FileHash` — cleaner and avoids loading entire file into memory
+- `scripts/publish-global.ps1`: emit a `WARN` log when VS Code `settings.json` is not found (was a silent no-op); user is directed to open VS Code once to generate the file
+
 ## [1.2.1] - 2026-02-27
 
 ### Fixed
