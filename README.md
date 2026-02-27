@@ -173,32 +173,6 @@ Interactively initialises a repository with agents, instructions, hooks, and age
 .\init-repo.ps1 -Agents "devops-expert,se-security-reviewer" -Instructions "powershell"
 ```
 
----
-
-### `normalize-copilot-folders.ps1`
-Cleans up misplaced or duplicated files in VS Code directories.
-
-**Features:**
-- Moves files to correct category folders based on suffix
-- Removes duplicate files (keeps newest version)
-- Handles renamed copies (file.1.md, chatmodes__file.md)
-
-**Usage:**
-```powershell
-.\normalize-copilot-folders.ps1
-
-# Normalize a specific profile root
-.\normalize-copilot-folders.ps1 -ProfileRoot "C:\Users\me\AppData\Roaming\Code\User\profiles\abc123" -NoDryRun
-
-# Normalize all profiles (dry run)
-.\normalize-copilot-folders.ps1 -AllProfiles
-
-# Apply across all profiles
-.\normalize-copilot-folders.ps1 -AllProfiles -NoDryRun
-```
-
----
-
 ### `install-scheduled-task.ps1`
 Creates a Windows scheduled task for automatic syncing and global publishing.
 

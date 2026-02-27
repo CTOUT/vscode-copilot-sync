@@ -53,8 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `install-scheduled-task.ps1`: default categories now `agents,instructions,workflows,hooks,skills`; `-IncludeCollections` replaced by `-IncludePlugins`; `-SkipCombine` replaced by `-SkipPublishGlobal`; scheduled actions now run `publish-global.ps1` after sync
 
 ### Removed
-- `combine-and-publish-prompts.ps1` — superseded by `publish-global.ps1` + `init-repo.ps1`
-- `publish-to-vscode-profile.ps1` — only handled `chatmodes/` and `prompts/` categories which no longer exist in awesome-copilot; use `publish-global.ps1` instead
+- `normalize-copilot-folders.ps1` — removed (legacy, superseded by junction-based agent publishing and `init-repo.ps1`)
 
 
 - `plugins/` and `cookbook/` are available but opt-in via `-IncludePlugins` due to their size
