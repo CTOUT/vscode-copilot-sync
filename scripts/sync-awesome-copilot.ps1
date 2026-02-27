@@ -50,10 +50,11 @@ function Check-Timeout {
     }
 }
 
-# Prepare log
-$RunId = (Get-Date -Format 'yyyyMMdd-HHmmss')
-if (-not (Test-Path logs)) { New-Item -ItemType Directory -Path logs | Out-Null }
-$Global:LogFile = Join-Path logs "sync-$RunId.log"
+# Prepare log — always relative to this script's directory, regardless of CWD
+$RunId  = (Get-Date -Format 'yyyyMMdd-HHmmss')
+$LogDir = Join-Path $PSScriptRoot 'logs'
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
+$Global:LogFile = Join-Path $LogDir "sync-$RunId.log"
 
 Write-Log "Starting Awesome Copilot sync. Dest=$Dest Categories=$Categories"
 
@@ -230,7 +231,7 @@ $Manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $ManifestPath -Encoding 
 Write-Log "Summary Added=$Added Updated=$Updated Removed=$Removed Unchanged=$Unchanged" 'SUCCESS'
 
 # Log retention
-Get-ChildItem logs -Filter 'sync-*.log' |
+Get-ChildItem $LogDir -Filter 'sync-*.log' |
     Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$LogRetentionDays) } |
     ForEach-Object { Remove-Item $_.FullName -Force }
 

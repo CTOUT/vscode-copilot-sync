@@ -304,8 +304,8 @@ Scripts automatically fall back to copying files. Check logs for details.
 # Check task status
 Get-ScheduledTask -TaskName "AwesomeCopilotSync" | Get-ScheduledTaskInfo
 
-# View logs (written to logs/ in the directory configure.ps1 was run from)
-Get-Content ".\logs\sync-*.log" | Select-Object -Last 50
+# View logs
+Get-Content ".\scripts\logs\sync-*.log" | Select-Object -Last 50
 
 # Manually run task
 Start-ScheduledTask -TaskName "AwesomeCopilotSync"
@@ -318,10 +318,10 @@ Start-ScheduledTask -TaskName "AwesomeCopilotSync"
 
 ## 📊 Logs
 
-Sync logs are written to a `logs/` folder in whichever directory you ran `configure.ps1` (or `sync-awesome-copilot.ps1`) from:
+Sync logs are always written to `scripts/logs/` (next to the script itself, regardless of where you invoke it from):
 ```powershell
 # View latest sync log
-Get-ChildItem .\logs\sync-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content
+Get-ChildItem .\scripts\logs\sync-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content
 ```
 
 Log format: `sync-YYYYMMDD-HHMMSS.log`
