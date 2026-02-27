@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-02-27
+
+### Changed
+- `scripts/sync-awesome-copilot.ps1`: **Rewritten** — replaced GitHub API + per-file HTTP download approach with `git sparse-checkout`. First run clones `github/awesome-copilot` shallowly with only the requested categories; subsequent runs run `git pull` for near-instant delta updates. Dramatically faster (single bulk transfer vs 700+ individual HTTP requests) and removes GitHub API rate-limit concerns entirely.
+  - Prefers `gh` (GitHub CLI) for automatic auth; falls back to `git`
+  - New `-GitTool auto|gh|git` parameter to override tool selection
+  - Removed parameters: `-NoDelete`, `-DiffOnly`, `-SkipBackup`, `-BackupRetention` (git handles all of these natively)
+  - Migrates automatically from the old API-based cache (renames non-git `~/.awesome-copilot/` to `~/.awesome-copilot-backup-<date>` before cloning)
+  - `manifest.json` still written (from local file scan) for backward compatibility with `publish-global.ps1` and `configure.ps1`
+
+### Added
+- `README.md`: document `gh`/`git` requirement; update sync section to reflect git-based approach
+
 ## [1.1.2] - 2026-02-27
 
 ### Added

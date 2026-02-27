@@ -25,7 +25,8 @@ These scripts automate the management of VS Code Copilot custom agents, instruct
 
 - **Windows** with PowerShell 7+ ([Download here](https://github.com/PowerShell/PowerShell/releases))
 - **VS Code** with GitHub Copilot extension installed
-- **Internet connection** for GitHub API access
+- **`gh` (GitHub CLI) or `git`** — `gh` is preferred ([Download here](https://cli.github.com/)); handles auth automatically
+- **Internet connection** for GitHub access
 - **Administrator privileges** (for creating scheduled tasks)
 
 ## 🚀 Quick Start
@@ -84,7 +85,8 @@ A selection UI will appear for each category (Out-GridView on Windows, or a numb
 ## 📁 What Gets Created
 
 ```
-$HOME\.awesome-copilot\          # Local cache
+$HOME\.awesome-copilot\          # Local cache (git sparse clone)
+├── .git\                        # Git metadata (managed automatically)
 ├── agents\                      # Custom agents (.agent.md)
 ├── instructions\                # Custom instructions (.instructions.md)
 ├── workflows\                   # Agentic workflow definitions
@@ -133,25 +135,31 @@ Main entry point at the repo root. Chains sync → publish → init-repo in one 
 ---
 
 ### `scripts/sync-awesome-copilot.ps1`
-Syncs resources from the awesome-copilot GitHub repository.
+Syncs resources from the awesome-copilot GitHub repository using a sparse git clone.
 
 **Features:**
-- Downloads latest resources via GitHub API
-- SHA256 hash-based change detection
-- Incremental updates (only downloads changed files)
-- Manifest tracking for sync state
-- Optional GITHUB_TOKEN support for higher rate limits
+- Clones `github/awesome-copilot` with sparse checkout (first run) — only downloads the categories you need
+- Pulls updates on subsequent runs — git transfers only the diff, making updates near-instant
+- SHA256 hash-based change detection against previous manifest (added/updated/unchanged/removed counts)
+- Prefers `gh` (GitHub CLI) for automatic auth; falls back to `git`
+- Automatically migrates from the old API-based cache if detected
 
 **Usage:**
 ```powershell
 .\scripts\sync-awesome-copilot.ps1
+
+# Dry-run: show what would change without writing files
+.\scripts\sync-awesome-copilot.ps1 -Plan
+
+# Sync specific categories only
+.\scripts\sync-awesome-copilot.ps1 -Categories "agents,instructions"
+
+# Force a specific tool
+.\scripts\sync-awesome-copilot.ps1 -GitTool git
 ```
 
 Syncs these categories by default: `agents`, `instructions`, `workflows`, `hooks`, `skills`.
 Add `plugins` or `cookbook` explicitly via `-Categories` for those larger opt-in collections.
-
-**Environment Variables:**
-- `GITHUB_TOKEN` (optional) - Personal access token for higher API rate limits
 
 ---
 

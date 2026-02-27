@@ -1,25 +1,43 @@
+<#
+Sync Awesome Copilot Resources
+
+Clones (first run) or pulls (subsequent runs) the github/awesome-copilot repository
+using sparse checkout — only the categories you need are fetched.
+
+Requires 'gh' (GitHub CLI, preferred) or 'git' to be installed.
+
+Usage:
+  # Sync all default categories
+  .\sync-awesome-copilot.ps1
+
+  # Dry-run: show what would change without writing files
+  .\sync-awesome-copilot.ps1 -Plan
+
+  # Sync specific categories only
+  .\sync-awesome-copilot.ps1 -Categories "agents,instructions"
+
+  # Force a specific git tool
+  .\sync-awesome-copilot.ps1 -GitTool git
+#>
 [CmdletBinding()] param(
     [string]$Dest = "$HOME/.awesome-copilot",
-    # Default covers all main categories; add 'plugins' or 'cookbook' explicitly for larger opt-in categories
     [string]$Categories = 'agents,instructions,workflows,hooks,skills',
     [switch]$Quiet,
-    [switch]$NoDelete,
-    [switch]$DiffOnly,
-    [switch]$Plan,              # Dry-run: compute changes, no file writes / deletions / manifest update
-    [switch]$SkipBackup,         # Skip pre-deletion backup snapshot
-    [int]$BackupRetention = 5,   # Number of recent backups to retain
+    [switch]$Plan,              # Dry-run: show what would change without writing files
     [int]$LogRetentionDays = 14,
-    [int]$TimeoutSeconds = 600
+    [int]$TimeoutSeconds = 600,
+    [ValidateSet('auto', 'gh', 'git')]
+    [string]$GitTool = 'auto'
 )
 
 $ErrorActionPreference = 'Stop'
 
 $script:StartTime = Get-Date
-$script:Deadline = $script:StartTime.AddSeconds($TimeoutSeconds)
+$script:Deadline  = $script:StartTime.AddSeconds($TimeoutSeconds)
 
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
-    $ts = (Get-Date).ToString('s')
+    $ts   = (Get-Date).ToString('s')
     $line = "[$ts][$Level] $Message"
     if (-not $Quiet) { Write-Host $line }
     Add-Content -Path $Global:LogFile -Value $line
@@ -27,319 +45,193 @@ function Write-Log {
 
 function Check-Timeout {
     if ((Get-Date) -gt $script:Deadline) {
-        Write-Log "Timeout reached, aborting." 'ERROR'
+        Write-Log "Timeout reached ($TimeoutSeconds s), aborting." 'ERROR'
         exit 1
     }
 }
 
-# Prepare paths
-$Root = Resolve-Path -Path . | Select-Object -ExpandProperty Path
+# Prepare log
 $RunId = (Get-Date -Format 'yyyyMMdd-HHmmss')
 if (-not (Test-Path logs)) { New-Item -ItemType Directory -Path logs | Out-Null }
 $Global:LogFile = Join-Path logs "sync-$RunId.log"
 
-Write-Log "Starting Awesome Copilot scheduled sync. Dest=$Dest Categories=$Categories" 'INFO'
+Write-Log "Starting Awesome Copilot sync. Dest=$Dest Categories=$Categories"
 
-# Ensure destination
-if (-not (Test-Path $Dest)) { New-Item -ItemType Directory -Path $Dest -Force | Out-Null }
-
-$ManifestPath = Join-Path $Dest 'manifest.json'
-$StatusPath = Join-Path $Dest 'status.txt'
-
-# Load previous manifest
-$PrevManifest = $null
-if (Test-Path $ManifestPath) {
-    try { $PrevManifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json } catch { Write-Log "Failed to parse previous manifest: $_" 'WARN' }
+# ---------------------------------------------------------------------------
+# Tool detection — prefer gh (handles auth automatically), fall back to git
+# ---------------------------------------------------------------------------
+function Resolve-GitTool {
+    if ($GitTool -ne 'auto') {
+        if (-not (Get-Command $GitTool -ErrorAction SilentlyContinue)) {
+            Write-Log "'$GitTool' not found on PATH." 'ERROR'; exit 1
+        }
+        return $GitTool
+    }
+    if (Get-Command gh  -ErrorAction SilentlyContinue) { return 'gh'  }
+    if (Get-Command git -ErrorAction SilentlyContinue) { return 'git' }
+    Write-Log "Neither 'gh' nor 'git' found on PATH. Install one to continue." 'ERROR'
+    exit 1
 }
 
+$Tool = Resolve-GitTool
+Write-Log "Using tool: $Tool"
+
+$RepoSlug       = 'github/awesome-copilot'
+$RepoUrl        = 'https://github.com/github/awesome-copilot.git'
 $CategoriesList = $Categories.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+$ManifestPath   = Join-Path $Dest 'manifest.json'
+$StatusPath     = Join-Path $Dest 'status.txt'
 
-$Repo = 'github/awesome-copilot'
-$ApiBase = 'https://api.github.com'
-$UserAgent = 'awesome-copilot-scheduled-sync'
-$Token = $env:GITHUB_TOKEN
-
-function Invoke-Github {
-    param(
-        [string]$Url,
-        [int]$Attempt = 1
-    )
-    Check-Timeout
-    $Headers = @{ 'User-Agent' = $UserAgent; 'Accept' = 'application/vnd.github.v3+json' }
-    if ($Token) { $Headers['Authorization'] = "Bearer $Token" }
+# Load previous manifest for change detection
+$PrevManifest = $null
+$PrevIndex    = @{}
+if (Test-Path $ManifestPath) {
     try {
-        return Invoke-RestMethod -Uri $Url -Headers $Headers -TimeoutSec 60
-    }
-    catch {
-        # Rate limit detection (403 + Remaining=0)
-        try {
-            $resp = $_.Exception.Response
-            if ($resp -and $resp.StatusCode.value__ -eq 403) {
-                $remainingHeader = $resp.Headers['X-RateLimit-Remaining']
-                if ($remainingHeader -eq '0') {
-                    $script:RateLimitHit = $true
-                    Write-Log "Rate limit hit for $Url (Remaining=0)." 'WARN'
-                }
+        $PrevManifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
+        if ($PrevManifest.items) {
+            foreach ($it in $PrevManifest.items) {
+                $PrevIndex["$($it.category)|$($it.path)"] = $it
             }
         }
-        catch {}
-        if ($Attempt -lt 3 -and ($_.Exception.Response.StatusCode.value__ -ge 500 -or $_.Exception.Response.StatusCode.value__ -eq 429)) {
-            $delay = [math]::Pow(2, $Attempt)
-            Write-Log "Transient error on $Url. Retry in $delay s" 'WARN'
-            Start-Sleep -Seconds $delay
-            return Invoke-Github -Url $Url -Attempt ($Attempt + 1)
-        }
-        Write-Log "Request failed: $Url :: $_" 'ERROR'
-        throw
     }
+    catch { Write-Log "Failed to parse previous manifest: $_" 'WARN' }
 }
 
-function Get-FileHashSha256String {
-    param([byte[]]$Bytes)
-    $sha256 = [System.Security.Cryptography.SHA256]::Create()
-    $hashBytes = $sha256.ComputeHash($Bytes)
-    ($hashBytes | ForEach-Object { $_.ToString('x2') }) -join ''
+function Get-Sha256 {
+    param([string]$FilePath)
+    $sha256    = [System.Security.Cryptography.SHA256]::Create()
+    $hashBytes = $sha256.ComputeHash([System.IO.File]::ReadAllBytes($FilePath))
+    return ($hashBytes | ForEach-Object { $_.ToString('x2') }) -join ''
 }
 
-# Recursively fetch all file entries under a GitHub contents API URL.
-# Handles both flat directories and nested subdirectory structures (e.g. skills/, hooks/).
-function Get-RepoFiles {
-    param([string]$Url)
-    Check-Timeout
-    try { $entries = Invoke-Github -Url $Url } catch { Write-Log "Failed to list $Url : $_" 'ERROR'; return @() }
-    $files = @()
-    foreach ($entry in $entries) {
-        if ($entry.type -eq 'file') {
-            $files += $entry
-        }
-        elseif ($entry.type -eq 'dir') {
-            $files += Get-RepoFiles -Url $entry.url
-        }
+# ---------------------------------------------------------------------------
+# Clone (first run) or pull (subsequent runs)
+# ---------------------------------------------------------------------------
+$IsFirstRun = -not (Test-Path (Join-Path $Dest '.git'))
+
+if ($Plan) {
+    if ($IsFirstRun) {
+        Write-Log "[Plan] Would clone $RepoSlug → $Dest  (sparse: $($CategoriesList -join ', '))" 'INFO'
+    } else {
+        Write-Log "[Plan] Would pull latest changes from $RepoSlug into $Dest" 'INFO'
     }
-    return $files
-}
-
-if ($DiffOnly) {
-    if (-not $PrevManifest) { Write-Log "No previous manifest; diff-only mode cannot proceed." 'ERROR'; exit 1 }
-    Write-Log "Diff-only mode: no network calls. Summarizing previous manifest." 'INFO'
-    $summary = $PrevManifest.summary
-    $content = @()
-    $content += "Diff-only summary (previous run)" 
-    $content += "Added:    $($summary.added)"
-    $content += "Updated:  $($summary.updated)"
-    $content += "Removed:  $($summary.removed)"
-    $content += "Unchanged:$($summary.unchanged)"
-    Set-Content -Path $StatusPath -Value ($content -join [Environment]::NewLine)
+    Write-Log "[Plan] No files written. Exiting." 'INFO'
     exit 0
 }
 
-$NewItems = @()
-$Added = 0; $Updated = 0; $Removed = 0; $Unchanged = 0
-$PrevIndex = @{}
-if ($PrevManifest -and $PrevManifest.items) {
-    foreach ($it in $PrevManifest.items) { $PrevIndex["$($it.category)|$($it.path)"] = $it }
+if ($IsFirstRun) {
+    Write-Log "First run — cloning $RepoSlug (sparse, shallow)..."
+
+    # Migrate: if a non-git directory already exists (e.g. from the old API-based sync),
+    # rename it so git can clone into a clean destination.
+    if ((Test-Path $Dest) -and (Get-ChildItem $Dest -Force | Measure-Object).Count -gt 0) {
+        $backupPath = "${Dest}-backup-$RunId"
+        Write-Log "Existing non-git cache found — moving to $backupPath before cloning." 'WARN'
+        Move-Item $Dest $backupPath
+    }
+
+    if (-not (Test-Path $Dest)) { New-Item -ItemType Directory -Path $Dest -Force | Out-Null }
+
+    if ($Tool -eq 'gh') {
+        & gh repo clone $RepoSlug $Dest -- --depth 1 --filter=blob:none --sparse 2>&1 |
+            ForEach-Object { Write-Log $_ }
+    } else {
+        & git clone --depth 1 --filter=blob:none --sparse $RepoUrl $Dest 2>&1 |
+            ForEach-Object { Write-Log $_ }
+    }
+    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Write-Log "Clone failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
+
+    # Set which directories to check out, then materialise them
+    & git -C $Dest sparse-checkout set @CategoriesList 2>&1 | Out-Null
+    Write-Log "Repository cloned successfully." 'SUCCESS'
+} else {
+    Write-Log "Pulling latest changes from $RepoSlug..."
+
+    # Re-apply sparse-checkout in case -Categories changed since last run
+    & git -C $Dest sparse-checkout set @CategoriesList 2>&1 | Out-Null
+
+    & git -C $Dest pull 2>&1 | ForEach-Object { Write-Log $_ }
+    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Write-Log "Pull failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
 }
 
+Check-Timeout
+
+# ---------------------------------------------------------------------------
+# Scan local files — compare against previous manifest for change counts
+# ---------------------------------------------------------------------------
+$NewItems  = @()
+$Added = 0; $Updated = 0; $Unchanged = 0; $Removed = 0
+$DestResolved = (Resolve-Path $Dest).Path
+
 foreach ($cat in $CategoriesList) {
-    Write-Log "Fetching category: $cat" 'INFO'
-    $url = "$ApiBase/repos/$Repo/contents/$cat"
-    try {
-        $allEntries = Get-RepoFiles -Url $url
-    }
-    catch {
-        Write-Log "Failed to list $cat" 'ERROR'
-        continue
-    }
+    $catDir = Join-Path $DestResolved $cat
+    if (-not (Test-Path $catDir)) { Write-Log "Category folder not found after sync: $cat" 'WARN'; continue }
 
-    if (-not $script:SuccessfulCategories) { $script:SuccessfulCategories = @() }
-    $script:SuccessfulCategories += $cat
+    $files = Get-ChildItem -Path $catDir -Recurse -File |
+             Where-Object { $_.Name -match '\.(md|markdown|json|sh)$' }
 
-    foreach ($entry in $allEntries) {
-        if (-not ($entry.name -match '\.(md|markdown|json|sh)$')) { continue }
+    foreach ($file in $files) {
         Check-Timeout
-        $downloadUrl = $entry.download_url
-        if (-not $downloadUrl) { continue }
-        $rawBytes = $null
-        try {
-            # Primary attempt: Invoke-WebRequest and derive bytes (ContentBytes is not a valid property in modern PowerShell)
-            $resp = Invoke-WebRequest -Uri $downloadUrl -UserAgent $UserAgent -TimeoutSec 60 -ErrorAction Stop
-            if ($resp.RawContentStream) {
-                $ms = New-Object System.IO.MemoryStream
-                $resp.RawContentStream.CopyTo($ms)
-                $rawBytes = $ms.ToArray()
-            }
-            elseif ($resp.Content) {
-                # Fallback: encode string content as UTF8 (raw text files like md/json are UTF-8 on GitHub)
-                $rawBytes = [System.Text.Encoding]::UTF8.GetBytes($resp.Content)
-            }
-            if (-not $rawBytes -or $rawBytes.Length -eq 0) { throw "Empty response body" }
-        }
-        catch {
-            Write-Log "Direct download failed for $($entry.path): $_ (will fallback to contents API)" 'WARN'
-            try {
-                # Fallback: GitHub contents API returns base64 content
-                $fileMeta = Invoke-Github -Url "$ApiBase/repos/$Repo/contents/$($entry.path)"
-                if ($fileMeta.content) {
-                    $b64 = ($fileMeta.content -replace "\s", '')
-                    $rawBytes = [System.Convert]::FromBase64String($b64)
-                }
-                else {
-                    throw "No content field in contents API response"
-                }
-            }
-            catch {
-                Write-Log "Failed download $($entry.path): $_" 'ERROR'
-                continue
-            }
-        }
-        $hash = Get-FileHashSha256String -Bytes $rawBytes
-        $key = "$cat|$($entry.path)"
+        $relativePath = $file.FullName.Substring($DestResolved.Length + 1) -replace '\\', '/'
+        $hash = Get-Sha256 -FilePath $file.FullName
+        $key  = "$cat|$relativePath"
         $prev = $PrevIndex[$key]
-        $relativePath = $entry.path
-        $targetFile = Join-Path $Dest $relativePath
-        $targetDir = Split-Path $targetFile -Parent
-        if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }
 
-        $isChange = $true
-        if ($prev -and $prev.sha -eq $entry.sha -and $prev.hash -eq $hash) { $isChange = $false }
-        if ($isChange) {
-            if ($Plan) {
-                Write-Log "[Plan] Would save: $relativePath" 'INFO'
-            }
-            else {
-                # Ensure the file is fully replaced by removing it first if it exists
-                if (Test-Path $targetFile) {
-                    Remove-Item $targetFile -Force
-                }
-                [System.IO.File]::WriteAllBytes($targetFile, $rawBytes)
-            }
-            if ($prev) { $Updated++ } else { $Added++ }
-            if (-not $Plan) { Write-Log "Saved: $relativePath" 'INFO' }
-        }
-        else { $Unchanged++ }
+        if     ($prev -and $prev.hash -eq $hash) { $Unchanged++ }
+        elseif ($prev)                            { $Updated++;  Write-Log "Updated: $relativePath" }
+        else                                      { $Added++;    Write-Log "Added:   $relativePath" }
 
         $NewItems += [pscustomobject]@{
             category    = $cat
             path        = $relativePath
-            sha         = $entry.sha
-            size        = $entry.size
+            size        = $file.Length
             lastFetched = (Get-Date).ToString('o')
             hash        = $hash
         }
     }
 }
 
-# Determine removals (only for categories successfully fetched this run)
-if (-not $Plan -and -not $NoDelete -and $PrevManifest) {
-    if ($script:RateLimitHit) {
-        Write-Log 'Rate limit encountered this run; skipping stale file deletion.' 'WARN'
-    }
-    else {
-        $successful = $script:SuccessfulCategories | Sort-Object -Unique
-        if (-not $successful -or $successful.Count -eq 0) {
-            Write-Log 'No categories fetched successfully this run; skipping stale file deletion for safety.' 'WARN'
-        }
-        else {
-            # Backup snapshot before deletions
-            if (-not $SkipBackup) {
-                try {
-                    $backupRoot = Join-Path $Dest 'backups'
-                    if (-not (Test-Path $backupRoot)) { New-Item -ItemType Directory -Path $backupRoot | Out-Null }
-                    $backupFile = Join-Path $backupRoot ("pre-delete-" + $RunId + '.zip')
-                    Write-Log "Creating backup snapshot: $backupFile" 'INFO'
-                    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
-                    # Zip only successfully fetched category folders (if present)
-                    $tempStage = Join-Path $backupRoot ("stage-" + $RunId)
-                    New-Item -ItemType Directory -Path $tempStage | Out-Null
-                    foreach ($c in $successful) {
-                        $cDir = Join-Path $Dest $c
-                        if (Test-Path $cDir) { Copy-Item $cDir (Join-Path $tempStage $c) -Recurse -Force }
-                    }
-                    [IO.Compression.ZipFile]::CreateFromDirectory($tempStage, $backupFile)
-                    Remove-Item $tempStage -Recurse -Force -ErrorAction SilentlyContinue
-                    # Retention
-                    $backups = Get-ChildItem $backupRoot -Filter 'pre-delete-*.zip' | Sort-Object LastWriteTime -Descending
-                    if ($backups.Count -gt $BackupRetention) {
-                        $toRemove = $backups | Select-Object -Skip $BackupRetention
-                        foreach ($oldB in $toRemove) { Remove-Item $oldB.FullName -Force }
-                    }
-                }
-                catch {
-                    Write-Log "Backup snapshot failed (continuing without backup): $_" 'WARN'
-                }
-            }
-            $NewKeySet = @{}
-            foreach ($ni in $NewItems) { $NewKeySet["$($ni.category)|$($ni.path)"] = $true }
-            foreach ($old in $PrevManifest.items) {
-                $k = "$($old.category)|$($old.path)"
-                # Only consider deletion if the category was fetched this run
-                if ($successful -contains $old.category) {
-                    if (-not $NewKeySet.ContainsKey($k)) {
-                        $Removed++
-                        $fileToRemove = Join-Path $Dest $old.path
-                        if (Test-Path $fileToRemove) { Remove-Item $fileToRemove -Force }
-                        Write-Log "Removed stale file: $($old.path)" 'INFO'
-                    }
-                }
-            }
+# Count removals (files present in previous manifest but gone after pull)
+$NewKeySet = @{}; foreach ($ni in $NewItems) { $NewKeySet["$($ni.category)|$($ni.path)"] = $true }
+if ($PrevManifest -and $PrevManifest.items) {
+    foreach ($old in $PrevManifest.items) {
+        if (-not $NewKeySet.ContainsKey("$($old.category)|$($old.path)")) {
+            $Removed++
+            Write-Log "Removed: $($old.path)"
         }
     }
 }
 
-if ($Plan) {
-    Write-Log "[Plan] Summary Added=$Added Updated=$Updated Removed=(planned) Unchanged=$Unchanged" 'INFO'
-    Write-Log '[Plan] No files written. Exiting without manifest/status update.' 'INFO'
-    exit 0
-}
-
-# Write manifest
+# ---------------------------------------------------------------------------
+# Write manifest + status
+# ---------------------------------------------------------------------------
 $Manifest = [pscustomobject]@{
     version    = 1
-    repo       = $Repo
+    repo       = $RepoSlug
     fetchedAt  = (Get-Date).ToString('o')
     categories = $CategoriesList
     items      = $NewItems
-    summary    = [pscustomobject]@{
-        added     = $Added
-        updated   = $Updated
-        removed   = $Removed
-        unchanged = $Unchanged
-    }
+    summary    = [pscustomobject]@{ added=$Added; updated=$Updated; removed=$Removed; unchanged=$Unchanged }
 }
-if ($script:SuccessfulCategories -and $script:SuccessfulCategories.Count -gt 0) {
-    $Manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $ManifestPath -Encoding UTF8
-    # Integrity marker
-    try {
-        $integrity = [pscustomobject]@{
-            fetchedAt            = (Get-Date).ToString('o')
-            successfulCategories = ($script:SuccessfulCategories | Sort-Object -Unique)
-            summary              = $Manifest.summary
-            manifestSha256       = (Get-FileHash -Algorithm SHA256 $ManifestPath).Hash
-        }
-        $integrity | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $Dest 'last-success.json') -Encoding UTF8
-    }
-    catch { Write-Log "Failed writing integrity marker: $_" 'WARN' }
-}
-else {
-    Write-Log 'No successful categories; manifest not updated this run.' 'WARN'
-}
+$Manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $ManifestPath -Encoding UTF8
 
-# Status file
-$StatusLines = @()
-$StatusLines += "Sync run: $(Get-Date -Format o)"
-$StatusLines += "Added:    $Added"
-$StatusLines += "Updated:  $Updated"
-$StatusLines += "Removed:  $Removed"
-$StatusLines += "Unchanged:$Unchanged"
-$StatusLines += "Total:    $($Manifest.items.Count)"
-$StatusLines += "Manifest: manifest.json"
-$StatusLines += "Repo:     $Repo"
-$StatusLines += "Duration: $([int]((Get-Date)-$script:StartTime).TotalSeconds)s"
-$StatusLines | Set-Content -Path $StatusPath -Encoding UTF8
+@(
+    "Sync run: $(Get-Date -Format o)"
+    "Added:    $Added"
+    "Updated:  $Updated"
+    "Removed:  $Removed"
+    "Unchanged:$Unchanged"
+    "Total:    $($NewItems.Count)"
+    "Manifest: manifest.json"
+    "Repo:     $RepoSlug"
+    "Duration: $([int]((Get-Date)-$script:StartTime).TotalSeconds)s"
+) | Set-Content -Path $StatusPath -Encoding UTF8
 
-Write-Log "Summary Added=$Added Updated=$Updated Removed=$Removed Unchanged=$Unchanged" 'INFO'
+Write-Log "Summary Added=$Added Updated=$Updated Removed=$Removed Unchanged=$Unchanged" 'SUCCESS'
 
 # Log retention
-Get-ChildItem logs -Filter 'sync-*.log' | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$LogRetentionDays) } | ForEach-Object { Remove-Item $_.FullName -Force }
+Get-ChildItem logs -Filter 'sync-*.log' |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$LogRetentionDays) } |
+    ForEach-Object { Remove-Item $_.FullName -Force }
 
 exit 0
