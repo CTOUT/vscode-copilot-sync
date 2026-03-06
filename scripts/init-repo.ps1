@@ -10,6 +10,7 @@ Resources installed here are project-specific (opt-in) rather than global:
   Instructions  --> .github/instructions/*.instructions.md
   Hooks         --> .github/hooks/<hook-name>/   (full directory)
   Workflows     --> .github/workflows/*.md
+  Skills        --> .github/skills/<skill-name>/  (full directory)
 
 Usage:
   # Interactive - run from within the target repo
@@ -20,20 +21,22 @@ Usage:
 
   # Skip specific categories
   .\init-repo.ps1 -SkipAgents -SkipHooks
-  .\init-repo.ps1 -SkipHooks -SkipWorkflows
+  .\init-repo.ps1 -SkipHooks -SkipWorkflows -SkipSkills
 
   # Non-interactive: specify items by name (comma-separated)
   .\init-repo.ps1 -Instructions "angular,dotnet-framework" -Hooks "session-logger"
   .\init-repo.ps1 -Agents "devops-expert,se-security-reviewer"
+  .\init-repo.ps1 -Skills "my-custom-skill"
   # Dry run - show what would be installed
   .\init-repo.ps1 -DryRun
 
 Notes:
   - Existing files are only overwritten if the source is newer/different.
   - .github/ is created if it doesn't exist.
-  - This script does NOT touch global resources (agents, skills).
-    Use publish-global.ps1 for those. For skills, point users directly
-    at https://github.com/github/awesome-copilot.
+  - Skills are installed to .github/skills/ for version control with the project.
+    Global skills (available across all repos) are managed by publish-global.ps1.
+  - A subscription manifest (.github/.copilot-subscriptions.json) is written on
+    each run. Use update-repo.ps1 to check for and apply upstream changes.
   - The selection UI uses Out-GridView where available (Windows GUI, filterable,
     multi-select). Falls back to a numbered console menu automatically.
   - Auto-detects language/framework from repo file signals and pre-marks
@@ -47,10 +50,12 @@ Notes:
     [string]$Agents        = '',
     [string]$Hooks         = '',
     [string]$Workflows     = '',
+    [string]$Skills        = '',   # Comma-separated names to pre-select (non-interactive)
     [switch]$SkipInstructions,
     [switch]$SkipAgents,
     [switch]$SkipHooks,
     [switch]$SkipWorkflows,
+    [switch]$SkipSkills,
     [switch]$DryRun
 )
 
@@ -242,7 +247,7 @@ Log "Copilot cache: $SourceRoot"
 
 # Auto-detect stack or prompt for intent
 $script:Recommendations = @()
-if (-not ($SkipInstructions -and $SkipHooks -and $SkipWorkflows -and $SkipAgents)) {
+if (-not ($SkipInstructions -and $SkipHooks -and $SkipWorkflows -and $SkipAgents -and $SkipSkills)) {
     $repoFileCount = (Get-ChildItem $RepoPath -Recurse -File -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -notmatch '\\(\.git|node_modules|\.venv|bin|obj)\\' } |
         Measure-Object).Count
@@ -397,6 +402,54 @@ function Get-Description([string]$FilePath) {
     return ''
 }
 
+function Get-DirHash([string]$DirPath) {
+    $hashes = Get-ChildItem $DirPath -Recurse -File |
+              Sort-Object FullName |
+              ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash }
+    $combined = $hashes -join '|'
+    $bytes    = [System.Text.Encoding]::UTF8.GetBytes($combined)
+    $stream   = [System.IO.MemoryStream]::new($bytes)
+    return (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash
+}
+
+function Update-Subscriptions {
+    param([string]$ManifestPath, [object[]]$NewEntries)
+    if (-not $NewEntries -or $NewEntries.Count -eq 0) { return }
+
+    $subs = $null
+    if (Test-Path $ManifestPath) {
+        try { $subs = Get-Content $ManifestPath -Raw | ConvertFrom-Json } catch {}
+    }
+    if (-not $subs) {
+        $subs = [pscustomobject]@{ version = 1; updatedAt = ''; subscriptions = @() }
+    }
+
+    $existing = [System.Collections.Generic.List[object]]::new()
+    if ($subs.subscriptions) { $existing.AddRange([object[]]$subs.subscriptions) }
+
+    foreach ($entry in $NewEntries) {
+        $idx = -1
+        for ($i = 0; $i -lt $existing.Count; $i++) {
+            if ($existing[$i].name -eq $entry.name -and $existing[$i].category -eq $entry.category) {
+                $idx = $i; break
+            }
+        }
+        if ($idx -ge 0) { $existing[$idx] = $entry } else { $existing.Add($entry) }
+    }
+
+    $subs | Add-Member -NotePropertyName 'updatedAt'     -NotePropertyValue (Get-Date).ToString('o') -Force
+    $subs | Add-Member -NotePropertyName 'subscriptions' -NotePropertyValue $existing.ToArray()      -Force
+
+    if (-not $DryRun) {
+        $dir = Split-Path $ManifestPath -Parent
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $subs | ConvertTo-Json -Depth 5 | Set-Content $ManifestPath -Encoding UTF8
+        Log "Updated subscriptions: $ManifestPath"
+    } else {
+        Log "[DryRun] Would update subscriptions: $ManifestPath ($($NewEntries.Count) new/updated entries)"
+    }
+}
+
 #endregion # Helpers
 
 #region Catalogue builders
@@ -434,6 +487,9 @@ function Build-DirCatalogue([string]$CatDir, [string]$DestDir) {
 #endregion # Catalogue builders
 
 #region Agents
+$script:SubscriptionEntries   = [System.Collections.Generic.List[object]]::new()
+$SubscriptionManifestPath     = Join-Path $GithubDir '.copilot-subscriptions.json'
+
 if (-not $SkipAgents) {
     $destDir   = Join-Path $GithubDir 'agents'
     $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'agents') $destDir '\.agent\.md$'
@@ -444,6 +500,15 @@ if (-not $SkipAgents) {
         $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
         Log "$verb  agent: $($item.FileName)"
         if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
+        $script:SubscriptionEntries.Add([pscustomobject]@{
+            name          = $item.Name
+            category      = 'agents'
+            type          = 'file'
+            fileName      = $item.FileName
+            sourceRelPath = "agents/$($item.FileName)"
+            hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
+            installedAt   = (Get-Date).ToString('o')
+        })
     }
 }
 
@@ -460,6 +525,15 @@ if (-not $SkipInstructions) {
         $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
         Log "$verb  instructions: $($item.FileName)"
         if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
+        $script:SubscriptionEntries.Add([pscustomobject]@{
+            name          = $item.Name
+            category      = 'instructions'
+            type          = 'file'
+            fileName      = $item.FileName
+            sourceRelPath = "instructions/$($item.FileName)"
+            hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
+            installedAt   = (Get-Date).ToString('o')
+        })
     }
 }
 
@@ -476,6 +550,15 @@ if (-not $SkipHooks) {
         $verb = if ($DryRun) { '~ DryRun' } else { '✓ Installed' }
         Log "$verb  hook: $($item.Name) (added=$($r.Added) updated=$($r.Updated) unchanged=$($r.Unchanged))"
         if (-not $DryRun) { $totalInstalled++ }
+        $script:SubscriptionEntries.Add([pscustomobject]@{
+            name          = $item.Name
+            category      = 'hooks'
+            type          = 'directory'
+            dirName       = $item.Name
+            sourceRelPath = "hooks/$($item.Name)"
+            hashAtInstall = Get-DirHash $item.FullPath
+            installedAt   = (Get-Date).ToString('o')
+        })
     }
 }
 
@@ -492,17 +575,56 @@ if (-not $SkipWorkflows) {
         $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
         Log "$verb  workflow: $($item.FileName)"
         if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
+        $script:SubscriptionEntries.Add([pscustomobject]@{
+            name          = $item.Name
+            category      = 'workflows'
+            type          = 'file'
+            fileName      = $item.FileName
+            sourceRelPath = "workflows/$($item.FileName)"
+            hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
+            installedAt   = (Get-Date).ToString('o')
+        })
     }
 }
 
 #endregion # Workflows
 
+#region Skills
+if (-not $SkipSkills) {
+    $destDir   = Join-Path $GithubDir 'skills'
+    $catalogue = Build-DirCatalogue (Join-Path $SourceRoot 'skills') $destDir
+    $selected  = Select-Items -Category 'Skills' -Items $catalogue -PreSelected $Skills -Recommended $script:Recommendations
+
+    foreach ($item in $selected) {
+        $r = Install-Directory -SrcDir $item.FullPath -DestParent $destDir
+        $verb = if ($DryRun) { '~ DryRun' } else { '✓ Installed' }
+        Log "$verb  skill: $($item.Name) (added=$($r.Added) updated=$($r.Updated) unchanged=$($r.Unchanged))"
+        if (-not $DryRun) { $totalInstalled++ }
+        $script:SubscriptionEntries.Add([pscustomobject]@{
+            name          = $item.Name
+            category      = 'skills'
+            type          = 'directory'
+            dirName       = $item.Name
+            sourceRelPath = "skills/$($item.Name)"
+            hashAtInstall = Get-DirHash $item.FullPath
+            installedAt   = (Get-Date).ToString('o')
+        })
+    }
+}
+
+#endregion # Skills
+
 #region Summary
+if ($script:SubscriptionEntries.Count -gt 0) {
+    Update-Subscriptions -ManifestPath $SubscriptionManifestPath -NewEntries $script:SubscriptionEntries.ToArray()
+}
+
 Write-Host ""
 if ($DryRun) {
     Log "Dry run complete. Re-run without -DryRun to apply." 'WARN'
 } else {
     Log "$totalInstalled resource(s) installed/updated in $GithubDir" 'SUCCESS'
-    Log "Tip: commit .github/ to share Copilot resources with your team (agents, instructions, hooks, workflows)."
+    Log "Tip: commit .github/ to share Copilot resources with your team (agents, instructions, hooks, workflows, skills)."
+    Log "Tip: run update-repo.ps1 to check for and apply upstream changes to your subscribed resources."
 }
 #endregion # Summary

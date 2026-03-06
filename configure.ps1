@@ -99,8 +99,24 @@ if (-not $SkipPublish) {
 
 #region Step 3 — Init repo
 if (-not $SkipInit) {
+    # If a subscriptions manifest exists for the current repo, offer to check for updates first
+    $subscriptionsFile = Join-Path (Get-Location).Path '.github\.copilot-subscriptions.json'
+    if (Test-Path $subscriptionsFile) {
+        Step "Check for updates to subscribed repo resources"
+        Write-Host "  Subscriptions found. Check for upstream updates to .github/ resources?" -ForegroundColor Yellow
+        Write-Host "  [Y] Yes   [N] No (default): " -NoNewline -ForegroundColor Yellow
+        $updateAnswer = (Read-Host).Trim()
+        if ($updateAnswer -match '^[Yy]') {
+            $updateArgs = @{}
+            if ($DryRun) { $updateArgs['DryRun'] = $true }
+            & (Join-Path $ScriptDir 'update-repo.ps1') @updateArgs
+        } else {
+            Log "Update check skipped."
+        }
+    }
+
     Step "Init repo"
-    Write-Host "  Add agents/instructions/hooks/workflows to .github/ in the current repo?" -ForegroundColor Yellow
+    Write-Host "  Add agents/instructions/hooks/workflows/skills to .github/ in the current repo?" -ForegroundColor Yellow
     Write-Host "  [Y] Yes   [N] No (default): " -NoNewline -ForegroundColor Yellow
     $answer = (Read-Host).Trim()
     if ($answer -match '^[Yy]') {
