@@ -12,7 +12,7 @@ If you find a bug, please create an issue with:
 - Expected vs actual behavior
 - PowerShell version (`$PSVersionTable.PSVersion`)
 - Windows version
-- Relevant log files from `$HOME\.awesome-copilot\logs\`
+- Relevant log files from `scripts\logs\`
 
 ### Suggesting Enhancements
 
@@ -42,16 +42,19 @@ Feature requests are welcome! Please include:
 
 5. **Test your changes**:
    ```powershell
+   # Full dry run (no files written)
+   .\configure.ps1 -DryRun
+
    # Test individual scripts
-   .\sync-awesome-copilot.ps1
-   .\combine-and-publish-prompts.ps1
-   
+   .\scripts\sync-awesome-copilot.ps1 -Plan
+   .\scripts\publish-global.ps1 -DryRun
+
    # Test scheduled task installation
-   .\install-scheduled-task.ps1 -Interval "1h"
+   .\configure.ps1 -InstallTask -Every "1h"
    Start-ScheduledTask -TaskName "AwesomeCopilotSync"
-   
+
    # Verify logs
-   Get-Content "$HOME\.awesome-copilot\logs\sync-*.log" -Tail 20
+   Get-ChildItem .\scripts\logs\sync-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content -Tail 20
    ```
 
 6. **Commit with clear messages**:

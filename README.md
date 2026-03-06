@@ -4,19 +4,29 @@ A collection of PowerShell scripts to automatically sync, combine, and publish [
 
 ## 🎯 What This Does
 
-These scripts automate the management of VS Code Copilot custom instructions, chat modes, prompts, and collections by:
+These scripts automate the management of VS Code Copilot custom agents, instructions, skills, hooks, and workflows from the [awesome-copilot](https://github.com/github/awesome-copilot) community repository:
 
-1. **Syncing** resources from the awesome-copilot GitHub repository
-2. **Combining** multiple resource categories into a unified structure
-3. **Publishing** to your VS Code profile(s) via symbolic links or file copies
-4. **Normalizing** file organization to prevent duplicates
-5. **Automating** the entire process via Windows Task Scheduler
+1. **Syncing** all resources from the awesome-copilot GitHub repository to a local cache
+2. **Publishing globally** — agents to VS Code's user agents folder (available in all workspaces), skills to `~/.copilot/skills/`
+3. **Initialising repos** — interactively adding agents, instructions, hooks and agentic workflows to a specific repo's `.github/` folder
+4. **Automating** the sync + publish cycle via Windows Task Scheduler
+
+### What goes where
+
+| Resource | Scope | Location |
+|---|---|---|
+| **Agents** | 🌐 Global | `%APPDATA%\Code\User\prompts\` — available in Copilot Chat across all workspaces |
+| **Skills** | 🌐 Global | `~/.copilot/skills/` — loaded on-demand by Copilot coding agent & CLI |
+| **Instructions** | 📁 Per-repo | `.github/instructions/` — chosen via `scripts/init-repo.ps1` |
+| **Hooks** | 📁 Per-repo | `.github/hooks/<name>/` — chosen via `scripts/init-repo.ps1` |
+| **Workflows** | 📁 Per-repo | `.github/workflows/` — chosen via `scripts/init-repo.ps1` |
 
 ## 📋 Prerequisites
 
 - **Windows** with PowerShell 7+ ([Download here](https://github.com/PowerShell/PowerShell/releases))
 - **VS Code** with GitHub Copilot extension installed
-- **Internet connection** for GitHub API access
+- **`gh` (GitHub CLI) or `git`** — `gh` is preferred ([Download here](https://cli.github.com/)); handles auth automatically
+- **Internet connection** for GitHub access
 - **Administrator privileges** (for creating scheduled tasks)
 
 ## 🚀 Quick Start
@@ -26,208 +36,255 @@ These scripts automate the management of VS Code Copilot custom instructions, ch
 ```powershell
 # Clone this repository
 git clone <your-repo-url>
-cd scripts
+cd vscode-copilot-sync
 ```
 
-### 2. Run Initial Sync
+### 2. Run the Configurator
+
+For first-time setup or an on-demand refresh, `configure.ps1` chains all steps:
 
 ```powershell
-# Sync resources from GitHub
-.\sync-awesome-copilot.ps1
+# Sync from GitHub, publish globally, and optionally init your repo
+.\configure.ps1
 
-# Combine resources into unified folder
-.\combine-and-publish-prompts.ps1
+# Or step by step:
+.\configure.ps1 -SkipInit                 # sync + publish only
+.\configure.ps1 -InstallTask              # sync + publish + install scheduled task
+.\configure.ps1 -DryRun                   # preview everything
 ```
 
-### 3. Install Automated Sync (Optional)
+### 3. Initialise a Repo (optional, interactive)
+
+> **Note:** `configure.ps1` also prompts for this step automatically — you only need to run it directly for a targeted repo setup.
 
 ```powershell
-# Install scheduled task (runs every 4 hours by default)
-.\install-scheduled-task.ps1
+# Run from inside any repo to add instructions/hooks/workflows
+cd C:\Projects\my-app
+.\scripts\init-repo.ps1
 
-# Or customize the interval
-.\install-scheduled-task.ps1 -Interval "2h"  # Every 2 hours
-.\install-scheduled-task.ps1 -Interval "1d"  # Once daily
+# Or specify the path explicitly
+.\scripts\init-repo.ps1 -RepoPath "C:\Projects\my-app"
+```
+
+A selection UI will appear for each category (Out-GridView on Windows, or a numbered console menu). Items already installed in the repo are marked with `[*]`.
+
+### 4. Install Automated Sync (Optional)
+
+```powershell
+# Install a scheduled task that syncs + publishes globally every 4 hours
+.\configure.ps1 -InstallTask
+
+# Customize the interval (re-run to overwrite; configure.ps1 prompts before replacing)
+.\configure.ps1 -InstallTask -Every "2h"   # Every 2 hours
+.\configure.ps1 -InstallTask -Every "30m"  # Every 30 minutes
+
+# Or run it directly (called internally by configure.ps1)
+.\scripts\install-scheduled-task.ps1 -Every "2h"
 ```
 
 ## 📁 What Gets Created
 
 ```
-$HOME\.awesome-copilot\          # Local cache
-├── chatmodes\                   # Chat mode definitions
-├── instructions\                # Custom instructions
-├── prompts\                     # Prompt templates
-├── collections\                 # Resource collections
-├── combined\                    # Unified resources (all categories)
+$HOME\.awesome-copilot\          # Local cache (git sparse clone)
+├── .git\                        # Git metadata (managed automatically)
+├── agents\                      # Custom agents (.agent.md)
+├── instructions\                # Custom instructions (.instructions.md)
+├── workflows\                   # Agentic workflow definitions
+├── hooks\                       # Automated hooks (with .json + .sh scripts)
+│   └── <hook-name>\
+├── skills\                      # Skill packages
+│   └── <skill-name>\
+│       └── SKILL.md
 └── manifest.json                # Sync state tracking
 
-%APPDATA%\Code\User\             # VS Code global config
-└── prompts\                     # Junction/symlink to combined folder
-
-%APPDATA%\Code\User\profiles\    # VS Code profiles
-└── <profile-name>\
-    ├── chatmodes\               # Linked/copied resources
-    ├── instructions\
-    └── prompts\
+%APPDATA%\Code\User\
+└── prompts\                     # Junction → ~/.awesome-copilot/agents/
 ```
 
 ## 📜 Scripts Overview
 
-### `sync-awesome-copilot.ps1`
-Syncs resources from the awesome-copilot GitHub repository.
+### `configure.ps1`
+Main entry point at the repo root. Chains sync → publish → init-repo in one command, and can install/uninstall the scheduled task via `-InstallTask` / `-UninstallTask` / `-Every` switches.
 
 **Features:**
-- Downloads latest resources via GitHub API
-- SHA256 hash-based change detection
-- Incremental updates (only downloads changed files)
-- Manifest tracking for sync state
-- Optional GITHUB_TOKEN support for higher rate limits
+- Shows last sync time from the local cache manifest before running
+- Runs each step in sequence; any step can be skipped independently
+- Prompts before running `scripts/init-repo.ps1` (with option to skip via `-SkipInit`)
+- `-DryRun` passes through to all child scripts
+- `-InstallTask` / `-UninstallTask` delegate to `scripts/install-scheduled-task.ps1` / `scripts/uninstall-scheduled-task.ps1`
+- `-Every` sets the scheduled task interval (e.g. `"2h"`, `"30m"`)
 
 **Usage:**
 ```powershell
-.\sync-awesome-copilot.ps1
-```
+# Full update: sync + publish + prompt for init-repo
+.\configure.ps1
 
-**Environment Variables:**
-- `GITHUB_TOKEN` (optional) - Personal access token for higher API rate limits
+# Sync + publish only
+.\configure.ps1 -SkipInit
 
----
+# Re-publish only (skip sync if cache is already fresh)
+.\configure.ps1 -SkipSync -SkipInit
 
-### `combine-and-publish-prompts.ps1`
-Combines resources from all categories into a unified folder and publishes to VS Code.
+# Preview without writing any files
+.\configure.ps1 -DryRun
 
-**Features:**
-- Merges chatmodes, instructions, and prompts into single directory
-- Creates junction/symlink to VS Code prompts directory
-- Automatic fallback to file copy if linking fails
-- Preserves user-created custom files
-
-**Usage:**
-```powershell
-.\combine-and-publish-prompts.ps1
-
-# Publish to specific profile
-.\combine-and-publish-prompts.ps1 -ProfileName "MyProfile"
-
-# Publish to global VS Code config only
-.\combine-and-publish-prompts.ps1 -GlobalOnly
+# Install scheduled task
+.\configure.ps1 -SkipSync -SkipPublish -InstallTask -Every "2h"
 ```
 
 ---
 
-### `publish-to-vscode-profile.ps1`
-Publishes resources to VS Code profile(s) via symbolic links or copies.
+### `scripts/sync-awesome-copilot.ps1`
+Syncs resources from the awesome-copilot GitHub repository using a sparse git clone.
 
 **Features:**
-- Creates symbolic links (junctions) for efficient syncing
-- Automatic fallback to file copy
-- Supports multiple profiles or global config
+- Clones `github/awesome-copilot` with sparse checkout (first run) — only downloads the categories you need
+- Pulls updates on subsequent runs — git transfers only the diff, making updates near-instant
+- SHA256 hash-based change detection against previous manifest (added/updated/unchanged/removed counts)
+- Prefers `gh` (GitHub CLI) for automatic auth; falls back to `git`
+- Automatically migrates from the old API-based cache if detected
 
 **Usage:**
 ```powershell
-.\publish-to-vscode-profile.ps1
+.\scripts\sync-awesome-copilot.ps1
 
-# Publish to specific profile
-.\publish-to-vscode-profile.ps1 -ProfileName "Work"
+# Dry-run: show what would change without writing files
+.\scripts\sync-awesome-copilot.ps1 -Plan
 
-# Publish to global config
-.\publish-to-vscode-profile.ps1 -GlobalOnly
+# Sync specific categories only
+.\scripts\sync-awesome-copilot.ps1 -Categories "agents,instructions"
+
+# Force a specific tool
+.\scripts\sync-awesome-copilot.ps1 -GitTool git
+```
+
+Syncs these categories by default: `agents`, `instructions`, `workflows`, `hooks`, `skills`.
+Add `plugins` or `cookbook` explicitly via `-Categories` for those larger opt-in collections.
+
+---
+
+### `scripts/publish-global.ps1`
+Publishes agents globally to VS Code and skills to `~/.copilot/skills/`.
+
+**Features:**
+- Creates a junction/symlink from VS Code's user agents folder to the local cache (no re-running needed after each sync)
+- Incrementally copies skills to `~/.copilot/skills/`
+- Dry-run mode for previewing changes
+- Individual skip flags for each resource type
+
+**Usage:**
+```powershell
+.\scripts\publish-global.ps1
+
+# Preview changes without applying
+.\scripts\publish-global.ps1 -DryRun
+
+# Skills only (agents already published)
+.\scripts\publish-global.ps1 -SkipAgents
+
+# Custom target path (e.g. named VS Code profile)
+.\scripts\publish-global.ps1 -AgentsTarget "$env:APPDATA\Code\User\profiles\Work\prompts"
 ```
 
 ---
 
-### `normalize-copilot-folders.ps1`
-Cleans up misplaced or duplicated files in VS Code directories.
+### `scripts/init-repo.ps1`
+Interactively initialises a repository with agents, instructions, hooks, and agentic workflows.
 
 **Features:**
-- Moves files to correct category folders based on suffix
-- Removes duplicate files (keeps newest version)
-- Handles renamed copies (file.1.md, chatmodes__file.md)
+- Auto-detects language/framework from repo file signals and pre-marks recommendations with ★ in the picker
+- Prompts for intent (language, project type, concerns) for new/empty repos
+- Presents available resources in a selection UI (Out-GridView on Windows, with `-- none / skip --` row to prevent accidental installs)
+- Falls back to a numbered console menu where Out-GridView is unavailable
+- Copies selected items to the correct `.github/` subfolder
+- Marks already-installed items so you can see what's new
+- Dry-run mode for previewing
 
 **Usage:**
 ```powershell
-.\normalize-copilot-folders.ps1
+# Run inside a repo (uses current directory)
+.\scripts\init-repo.ps1
 
-# Normalize specific profile
-.\normalize-copilot-folders.ps1 -ProfileName "MyProfile"
+# Target a specific repo
+.\scripts\init-repo.ps1 -RepoPath "C:\Projects\my-app"
+
+# Preview without writing any files
+.\scripts\init-repo.ps1 -DryRun
+
+# Skip categories you don't need
+.\scripts\init-repo.ps1 -SkipHooks -SkipWorkflows
+
+# Non-interactive: specify items by name
+.\scripts\init-repo.ps1 -Agents "devops-expert,se-security-reviewer" -Instructions "powershell"
 ```
 
----
-
-### `install-scheduled-task.ps1`
-Creates a Windows scheduled task for automatic syncing.
+### `scripts/install-scheduled-task.ps1`
+Creates a Windows scheduled task for automatic syncing and global publishing. Called internally by `configure.ps1 -InstallTask`.
 
 **Features:**
-- Runs sync and combine scripts on a schedule
+- Runs `sync-awesome-copilot.ps1` then `publish-global.ps1` on a schedule
 - Default: every 4 hours
-- Customizable interval
-- Runs as current user (no SYSTEM account needed)
+- Customizable interval via `-Every`
 
 **Usage:**
 ```powershell
-# Install with default 4-hour interval
-.\install-scheduled-task.ps1
+# Recommended: use configure.ps1 (prompts before overwriting an existing task)
+.\configure.ps1 -InstallTask
+.\configure.ps1 -InstallTask -Every "2h"
 
-# Custom intervals
-.\install-scheduled-task.ps1 -Interval "2h"   # Every 2 hours
-.\install-scheduled-task.ps1 -Interval "30m"  # Every 30 minutes
-.\install-scheduled-task.ps1 -Interval "1d"   # Once daily
+# Or run directly
+.\scripts\install-scheduled-task.ps1
+
+# Custom intervals (supports h = hours, m = minutes)
+.\scripts\install-scheduled-task.ps1 -Every "2h"   # Every 2 hours
+.\scripts\install-scheduled-task.ps1 -Every "30m"  # Every 30 minutes
 
 # Check task status
 Get-ScheduledTask -TaskName "AwesomeCopilotSync"
 ```
 
-**Interval Format:**
-- `30m` - Minutes
-- `2h` - Hours
-- `1d` - Days
-
----
-
-### `uninstall-scheduled-task.ps1`
-Removes the scheduled task.
+### `scripts/uninstall-scheduled-task.ps1`
+Removes the scheduled task. Called internally by `configure.ps1 -UninstallTask`.
 
 **Usage:**
 ```powershell
-.\uninstall-scheduled-task.ps1
+# Recommended: use configure.ps1
+.\configure.ps1 -UninstallTask
+
+# Or run directly
+.\scripts\uninstall-scheduled-task.ps1
 ```
 
 ## 🔧 Configuration
 
-### GitHub Rate Limits
+### Authentication
 
-Without authentication, GitHub API allows 60 requests/hour. For heavy usage:
+The sync script uses `gh` (GitHub CLI) by default, which inherits authentication from `gh auth login` — no extra setup needed for most users.
 
-1. Create a [Personal Access Token](https://github.com/settings/tokens) (no scopes needed for public repos)
-2. Set environment variable:
+If only `git` is available, the sync targets a public repo (`github/awesome-copilot`) so no credentials are required. For private forks, configure git credentials as usual (`git config credential.helper`).
 
+To force a specific tool:
 ```powershell
-# Temporary (current session)
-$env:GITHUB_TOKEN = "ghp_your_token_here"
-
-# Permanent (user environment)
-[Environment]::SetEnvironmentVariable("GITHUB_TOKEN", "ghp_your_token_here", "User")
+.\scripts\sync-awesome-copilot.ps1 -GitTool git
+.\scripts\sync-awesome-copilot.ps1 -GitTool gh
 ```
 
 ### Custom Source Repository
 
-By default, scripts sync from `github/awesome-copilot`. To use a different source:
-
-Edit `sync-awesome-copilot.ps1` line 57:
+To sync from a fork or alternative repo, edit the two variables near the top of `scripts/sync-awesome-copilot.ps1`:
 ```powershell
-$Repo = "your-username/your-repo"
+$RepoSlug = 'your-username/your-repo'
+$RepoUrl  = 'https://github.com/your-username/your-repo.git'
 ```
 
 ## 🗂️ File Naming Conventions
 
 Resources follow naming patterns for automatic categorization:
 
-- `*.chatmode.md` - Chat mode definitions
-- `*.instructions.md` - Custom instructions
-- `*.prompt.md` - Prompt templates
-- `*.collection.yml` - Resource collections
-
-Files without these suffixes in the combined folder are preserved (assumed to be user-created).
+- `*.agent.md` — Custom agents
+- `*.instructions.md` — Custom instructions
+- `SKILL.md` (inside a named subdirectory) — Skills
+- Hook and workflow directories contain a mix of `.md`, `.json`, and `.sh` files
 
 ## 🛠️ Troubleshooting
 
@@ -249,7 +306,7 @@ Scripts automatically fall back to copying files. Check logs for details.
 Get-ScheduledTask -TaskName "AwesomeCopilotSync" | Get-ScheduledTaskInfo
 
 # View logs
-Get-Content "$HOME\.awesome-copilot\logs\sync-*.log" -Tail 50
+Get-Content ".\scripts\logs\sync-*.log" | Select-Object -Last 50
 
 # Manually run task
 Start-ScheduledTask -TaskName "AwesomeCopilotSync"
@@ -262,10 +319,10 @@ Start-ScheduledTask -TaskName "AwesomeCopilotSync"
 
 ## 📊 Logs
 
-Sync logs are stored in `$HOME\.awesome-copilot\logs\`:
+Sync logs are always written to `scripts/logs/` (next to the script itself, regardless of where you invoke it from):
 ```powershell
 # View latest sync log
-Get-Content "$HOME\.awesome-copilot\logs\sync-*.log" -Tail 20
+Get-ChildItem .\scripts\logs\sync-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content
 ```
 
 Log format: `sync-YYYYMMDD-HHMMSS.log`

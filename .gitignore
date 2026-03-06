@@ -1,9 +1,6 @@
 # Logs directory (contains sync operation logs)
 logs/
 
-# Local awesome-copilot cache (user-specific)
-.awesome-copilot/
-
 # PowerShell history
 .history
 
@@ -15,3 +12,10 @@ Thumbs.db
 
 # macOS
 .DS_Store
+# Local cache (managed by sync-awesome-copilot.ps1 - not committed)
+.awesome-copilot/
+
+# Temp files from PowerShell / editors
+*.tmp
+*.bak
+~$*
