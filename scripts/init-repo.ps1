@@ -74,6 +74,64 @@ function Log($m, [string]$level = 'INFO') {
     Write-Host "[$ts][$level] $m" -ForegroundColor $color
 }
 
+# Win32 helper for foreground-forcing OGV windows
+if (-not ([System.Management.Automation.PSTypeName]'CopilotSync.FgHelper').Type) {
+    Add-Type -Namespace 'CopilotSync' -Name 'FgHelper' -MemberDefinition @'
+        [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+        [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+        [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc e, IntPtr p);
+        [DllImport("user32.dll")] public static extern int  GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
+        public delegate bool EnumWindowsProc(IntPtr h, IntPtr p);
+        public static System.IntPtr FindWindowContaining(string part) {
+            System.IntPtr found = System.IntPtr.Zero;
+            EnumWindows((h, p) => {
+                var sb = new System.Text.StringBuilder(512);
+                GetWindowText(h, sb, 512);
+                if (sb.ToString().Contains(part)) { found = h; return false; }
+                return true;
+            }, System.IntPtr.Zero);
+            return found;
+        }
+'@
+}
+
+function Show-OGV {
+    # Wrapper around Out-GridView that forces the window to the foreground.
+    # Starts a runspace that polls for the window by partial title match, then
+    # calls SetForegroundWindow (valid because this PowerShell process owns focus
+    # at the time it opens OGV).
+    param([Parameter(ValueFromPipeline)][object[]]$InputObject, [string]$Title, [switch]$PassThru)
+    begin   { $all = [System.Collections.Generic.List[object]]::new() }
+    process { foreach ($i in $InputObject) { $all.Add($i) } }
+    end {
+        # Spin up a runspace to foreground the OGV window once it appears
+        $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+        $rs.Open()
+        $ps = [System.Management.Automation.PowerShell]::Create()
+        $ps.Runspace = $rs
+        $null = $ps.AddScript({
+            param($t)
+            for ($i = 0; $i -lt 40; $i++) {   # poll up to 4 s
+                Start-Sleep -Milliseconds 100
+                $h = [CopilotSync.FgHelper]::FindWindowContaining($t)
+                if ($h -ne [IntPtr]::Zero) {
+                    [CopilotSync.FgHelper]::ShowWindow($h, 9)        | Out-Null  # SW_RESTORE
+                    [CopilotSync.FgHelper]::SetForegroundWindow($h)  | Out-Null
+                    break
+                }
+            }
+        }).AddArgument($Title)
+        $handle = $ps.BeginInvoke()
+
+        if ($PassThru) { $result = $all | Out-GridView -Title $Title -PassThru }
+        else           { $all | Out-GridView -Title $Title }
+
+        $null = $ps.EndInvoke($handle)
+        $ps.Dispose(); $rs.Close()
+        if ($PassThru) { return $result }
+    }
+}
+
 #endregion # Initialisation
 
 #region Stack detection
@@ -317,7 +375,7 @@ function Select-Items {
             @{ N='Name';        E={ $_.Name } },
             @{ N='Description'; E={ $_.Description } })
 
-        $picked = $display | Out-GridView -Title "Select $Category   ★=Recommended (config-free)  [*]=Installed  [↑]=Update  [~]=Modified  [!]=Setup required" -PassThru
+        $picked = $display | Show-OGV -Title "Select $Category   ★=Recommended (config-free)  [*]=Installed  [↑]=Update  [~]=Modified  [!]=Setup required" -PassThru
         if (-not $picked) { return @() }
         $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
         return @($Items | Where-Object { $pickedNames -contains $_.Name })
@@ -385,7 +443,7 @@ function Select-ToRemove {
             @{ N='Modified';    E={ if ($_.LocallyModified) { '[~] MODIFIED' } else { '' } } },
             @{ N='Name';        E={ $_.Name } },
             @{ N='Description'; E={ $_.Description } })
-        $picked = $display | Out-GridView -Title "Select $Category to REMOVE   [~]=Locally modified (removal is permanent)" -PassThru
+        $picked = $display | Show-OGV -Title "Select $Category to REMOVE   [~]=Locally modified (removal is permanent)" -PassThru
         if (-not $picked) { return @() }
         $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
         return @($removable | Where-Object { $pickedNames -contains $_.Name })
