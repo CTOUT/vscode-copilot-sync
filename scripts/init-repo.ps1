@@ -285,12 +285,12 @@ function Select-Items {
         return @($selected)
     }
 
-    # Score each item against the detected tech keywords; recommended = score > 0.
-    # Sort: recommended (highest score first) then remaining alphabetically.
+    # Score each item against the detected tech keywords; recommended = score >= 2 AND no setup required.
     $Items = $Items | ForEach-Object {
         $score = Measure-ItemRelevance -ItemName $_.Name -FilePath $_.FullPath -Tags $Tags
-        $_ | Add-Member -NotePropertyName 'IsRecommended' -NotePropertyValue ($score -ge 2) -PassThru -Force |
-             Add-Member -NotePropertyName 'Score'         -NotePropertyValue $score          -PassThru -Force
+        $isRec = ($score -ge 2) -and (-not $_.RequiresSetup)
+        $_ | Add-Member -NotePropertyName 'IsRecommended' -NotePropertyValue $isRec  -PassThru -Force |
+             Add-Member -NotePropertyName 'Score'         -NotePropertyValue $score  -PassThru -Force
     } | Sort-Object @{ E={ if ($_.IsRecommended) { 0 } else { 1 } } }, @{ E={ if ($_.AlreadyInstalled) { 0 } else { 1 } } }, Name
 
     Write-Host ""
@@ -315,7 +315,7 @@ function Select-Items {
             @{ N='Name';        E={ $_.Name } },
             @{ N='Description'; E={ $_.Description } })
 
-        $picked = $display | Out-GridView -Title "Select $Category   ★=Recommended  [*]=Installed  [↑]=Update  [~]=Modified" -PassThru
+        $picked = $display | Out-GridView -Title "Select $Category   ★=Recommended (config-free)  [*]=Installed  [↑]=Update  [~]=Modified" -PassThru
         if (-not $picked) { return @() }
         $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
         return @($Items | Where-Object { $pickedNames -contains $_.Name })
@@ -586,6 +586,22 @@ function Update-Subscriptions {
 #region Catalogue builders
 $totalInstalled = 0
 
+function Test-RequiresSetup([string]$FilePath) {
+    # Returns $true if the file/dir requires external setup (MCP server, API key, etc.)
+    # These items are never starred as recommendations.
+    $contentFile = $FilePath
+    if (Test-Path $FilePath -PathType Container) {
+        $readme = Join-Path $FilePath 'README.md'
+        if (-not (Test-Path $readme)) { $readme = Join-Path $FilePath 'SKILL.md' }
+        $contentFile = if (Test-Path $readme) { $readme } else { $null }
+    }
+    if (-not $contentFile -or -not (Test-Path $contentFile)) { return $false }
+    try {
+        $text = (Get-Content $contentFile -Raw -ErrorAction SilentlyContinue)
+        return $text -match 'mcp-servers:|_API_KEY\b|COPILOT_MCP_'
+    } catch { return $false }
+}
+
 function Build-FlatCatalogue([string]$CatDir, [string]$DestDir, [string]$Pattern, [string]$Category) {
     if (-not (Test-Path $CatDir)) { return @() }
     Get-ChildItem $CatDir -File | Where-Object { $_.Name -match $Pattern } | ForEach-Object {
@@ -611,6 +627,7 @@ function Build-FlatCatalogue([string]$CatDir, [string]$DestDir, [string]$Pattern
             FileName         = $_.Name
             FullPath         = $_.FullName
             Description      = Get-Description $_.FullName
+            RequiresSetup    = Test-RequiresSetup $_.FullName
             AlreadyInstalled = $installed
             ManagedByScript  = $managedByScript
             UpdateAvailable  = $updateAvailable
@@ -644,6 +661,7 @@ function Build-DirCatalogue([string]$CatDir, [string]$DestDir, [string]$Category
             Name             = $_.Name
             FullPath         = $_.FullName
             Description      = if (Test-Path $readmePath) { Get-Description $readmePath } else { '' }
+            RequiresSetup    = Test-RequiresSetup $_.FullName
             AlreadyInstalled = $installed
             ManagedByScript  = $managedByScript
             UpdateAvailable  = $updateAvailable
