@@ -74,58 +74,23 @@ function Log($m, [string]$level = 'INFO') {
     Write-Host "[$ts][$level] $m" -ForegroundColor $color
 }
 
-# Win32 helper for foreground-forcing OGV windows
-if (-not ([System.Management.Automation.PSTypeName]'CopilotSync.FgHelper').Type) {
-    Add-Type -Namespace 'CopilotSync' -Name 'FgHelper' -MemberDefinition @'
-        [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
-        [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
-        [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc e, IntPtr p);
-        [DllImport("user32.dll")] public static extern int  GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
-        [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, int extra);
-        [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
-        public delegate bool EnumWindowsProc(IntPtr h, IntPtr p);
-        public static System.IntPtr FindWindowContaining(string part) {
-            System.IntPtr found = System.IntPtr.Zero;
-            EnumWindows((h, p) => {
-                var sb = new System.Text.StringBuilder(512);
-                GetWindowText(h, sb, 512);
-                if (sb.ToString().Contains(part)) { found = h; return false; }
-                return true;
-            }, System.IntPtr.Zero);
-            return found;
-        }
-        public static void BringToFront(IntPtr h) {
-            keybd_event(0x12, 0, 0x0002, 0); // Alt key-up — resets Windows foreground-steal lock
-            ShowWindow(h, 9);                  // SW_RESTORE
-            SetForegroundWindow(h);
-            BringWindowToTop(h);
-        }
-'@
-}
-
 function Show-OGV {
-    # Wrapper around Out-GridView that forces the window to the foreground.
-    # Uses keybd_event(Alt) to reset Windows' foreground-steal lock before
-    # calling SetForegroundWindow — required when the foreground token has
-    # expired (e.g. after the catalogue loading phase).
+    # Wrapper around Out-GridView that activates the window via WScript.Shell.AppActivate,
+    # which bypasses UIPI restrictions that block SetForegroundWindow from runspaces.
     param([Parameter(ValueFromPipeline)][object[]]$InputObject, [string]$Title, [switch]$PassThru)
     begin   { $all = [System.Collections.Generic.List[object]]::new() }
     process { foreach ($i in $InputObject) { $all.Add($i) } }
     end {
-        # Spin up a runspace to foreground the OGV window once it appears
         $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
         $rs.Open()
         $ps = [System.Management.Automation.PowerShell]::Create()
         $ps.Runspace = $rs
         $null = $ps.AddScript({
             param($t)
+            $wsh = New-Object -ComObject WScript.Shell
             for ($i = 0; $i -lt 50; $i++) {   # poll up to 5 s
                 Start-Sleep -Milliseconds 100
-                $h = [CopilotSync.FgHelper]::FindWindowContaining($t)
-                if ($h -ne [System.IntPtr]::Zero) {
-                    [CopilotSync.FgHelper]::BringToFront($h)
-                    break
-                }
+                if ($wsh.AppActivate($t)) { break }
             }
         }).AddArgument($Title)
         $handle = $ps.BeginInvoke()
@@ -147,7 +112,8 @@ function Detect-RepoStack {
 
     $recs = [System.Collections.Generic.List[string]]::new()
     $files = Get-ChildItem $RepoPath -Recurse -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.FullName -notmatch '\\(\.git|node_modules|\.venv|bin|obj)\\' }
+        Where-Object { $_.FullName -notmatch '\\(\.git|node_modules|\.venv|bin|obj)\\' } |
+        Where-Object { $_.Name -notmatch '\.(instructions|agent|prompt|chatmode)\.md$' }  # exclude installed awesome-copilot files
 
     $exts      = $files | ForEach-Object { $_.Extension.ToLower() } | Sort-Object -Unique
     $names     = $files | ForEach-Object { $_.Name } | Sort-Object -Unique
