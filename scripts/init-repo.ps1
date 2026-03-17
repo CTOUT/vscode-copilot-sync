@@ -37,14 +37,15 @@ Usage:
 Notes:
   - Existing files are only overwritten if the source is newer/different.
   - .github/ is created if it doesn't exist.
-  - Skills are installed to .github/skills/ for version control with the project.
-    Global skills (available across all repos) are managed by publish-global.ps1.
+  - Skills are installed to .github/skills/ for version control with the project,
+    alongside all other per-repo resources.
   - A subscription manifest (.github/.copilot-subscriptions.json) is written on
     each run. Use update-repo.ps1 to check for and apply upstream changes.
   - The selection UI uses Out-GridView where available (Windows GUI, filterable,
     multi-select). Falls back to a numbered console menu automatically.
   - Auto-detects language/framework from repo file signals and pre-marks
-    recommended instructions/hooks/workflows with ★ in the picker.
+    recommended (config-free) resources with ★ in the picker.
+    Items requiring additional setup (MCP server, API key, etc.) are marked [!].
   - For new/empty repos, prompts for intent one question at a time.
 #>
 [CmdletBinding()] param(
