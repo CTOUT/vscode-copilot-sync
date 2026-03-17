@@ -687,12 +687,24 @@ function Remove-SubscriptionEntries {
 
 #endregion # Subscription manifest
 
-#region Agents
+#region Pre-load all catalogues
 $script:AllCatalogues = [System.Collections.Generic.List[object]]::new()
+
+Log "Loading resource catalogues..."
+$catAgents       = if (-not $SkipAgents)       { Build-FlatCatalogue (Join-Path $SourceRoot 'agents')       (Join-Path $GithubDir 'agents')       '\.agent\.md$'        'agents'       } else { @() }
+$catInstructions = if (-not $SkipInstructions) { Build-FlatCatalogue (Join-Path $SourceRoot 'instructions') (Join-Path $GithubDir 'instructions') '\.instructions\.md$' 'instructions' } else { @() }
+$catHooks        = if (-not $SkipHooks)        { Build-DirCatalogue  (Join-Path $SourceRoot 'hooks')        (Join-Path $GithubDir 'hooks')                               'hooks'        } else { @() }
+$catWorkflows    = if (-not $SkipWorkflows)    { Build-FlatCatalogue (Join-Path $SourceRoot 'workflows')    (Join-Path $GithubDir 'workflows')    '\.md$'               'workflows'    } else { @() }
+$catSkills       = if (-not $SkipSkills)       { Build-DirCatalogue  (Join-Path $SourceRoot 'skills')       (Join-Path $GithubDir 'skills')                              'skills'       } else { @() }
+Log "Catalogues loaded. Opening pickers..."
+
+#endregion # Pre-load all catalogues
+
+#region Agents
 
 if (-not $SkipAgents) {
     $destDir   = Join-Path $GithubDir 'agents'
-    $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'agents') $destDir '\.agent\.md$' 'agents'
+    $catalogue = $catAgents
     $script:AllCatalogues.Add([pscustomobject]@{ Category='agents'; Type='file'; Items=$catalogue; DestDir=$destDir })
 
     if ($Uninstall) {
@@ -733,7 +745,7 @@ if (-not $SkipAgents) {
 #region Instructions
 if (-not $SkipInstructions) {
     $destDir  = Join-Path $GithubDir 'instructions'
-    $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'instructions') $destDir '\.instructions\.md$' 'instructions'
+    $catalogue = $catInstructions
     $script:AllCatalogues.Add([pscustomobject]@{ Category='instructions'; Type='file'; Items=$catalogue; DestDir=$destDir })
 
     if ($Uninstall) {
@@ -772,7 +784,7 @@ if (-not $SkipInstructions) {
 #region Hooks
 if (-not $SkipHooks) {
     $destDir   = Join-Path $GithubDir 'hooks'
-    $catalogue  = Build-DirCatalogue (Join-Path $SourceRoot 'hooks') $destDir 'hooks'
+    $catalogue  = $catHooks
     $script:AllCatalogues.Add([pscustomobject]@{ Category='hooks'; Type='directory'; Items=$catalogue; DestDir=$destDir })
 
     if ($Uninstall) {
@@ -811,7 +823,7 @@ if (-not $SkipHooks) {
 #region Workflows
 if (-not $SkipWorkflows) {
     $destDir  = Join-Path $GithubDir 'workflows'
-    $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'workflows') $destDir '\.md$' 'workflows'
+    $catalogue = $catWorkflows
     $script:AllCatalogues.Add([pscustomobject]@{ Category='workflows'; Type='file'; Items=$catalogue; DestDir=$destDir })
 
     if ($Uninstall) {
@@ -850,7 +862,7 @@ if (-not $SkipWorkflows) {
 #region Skills
 if (-not $SkipSkills) {
     $destDir   = Join-Path $GithubDir 'skills'
-    $catalogue = Build-DirCatalogue (Join-Path $SourceRoot 'skills') $destDir 'skills'
+    $catalogue = $catSkills
     $script:AllCatalogues.Add([pscustomobject]@{ Category='skills'; Type='directory'; Items=$catalogue; DestDir=$destDir })
 
     if ($Uninstall) {
