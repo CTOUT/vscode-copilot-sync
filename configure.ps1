@@ -95,9 +95,9 @@ if (-not $SkipInit) {
     if (Test-Path $subscriptionsFile) {
         Step "Check for updates to subscribed repo resources"
         Write-Host "  Subscriptions found. Check for upstream updates to .github/ resources?" -ForegroundColor Yellow
-        Write-Host "  [Y] Yes   [N] No (default): " -NoNewline -ForegroundColor Yellow
+        Write-Host "  [Y] Yes (default)   [N] No: " -NoNewline -ForegroundColor Yellow
         $updateAnswer = (Read-Host).Trim()
-        if ($updateAnswer -match '^[Yy]') {
+        if ($updateAnswer -eq '' -or $updateAnswer -match '^[Yy]') {
             $updateArgs = @{}
             if ($DryRun) { $updateArgs['DryRun'] = $true }
             if ($RepoPath) { $updateArgs['RepoPath'] = $RepoPath }

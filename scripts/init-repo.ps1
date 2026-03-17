@@ -378,13 +378,14 @@ function Select-ToRemove {
     try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
 
     if ($ogvAvailable) {
-        $display = @($removable | Select-Object `
+        $none    = [pscustomobject]@{ Modified=''; Name='-- none / skip --'; Description='Select this (or nothing) to remove nothing' }
+        $display = @($none) + @($removable | Select-Object `
             @{ N='Modified';    E={ if ($_.LocallyModified) { '[~] MODIFIED' } else { '' } } },
             @{ N='Name';        E={ $_.Name } },
             @{ N='Description'; E={ $_.Description } })
         $picked = $display | Out-GridView -Title "Select $Category to REMOVE   [~]=Locally modified (removal is permanent)" -PassThru
         if (-not $picked) { return @() }
-        $pickedNames = @($picked | ForEach-Object { $_.Name })
+        $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
         return @($removable | Where-Object { $pickedNames -contains $_.Name })
     }
 
