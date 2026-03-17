@@ -709,12 +709,19 @@ function Remove-SubscriptionEntries {
 #region Pre-load all catalogues
 $script:AllCatalogues = [System.Collections.Generic.List[object]]::new()
 
+# When uninstalling, skip building catalogues for categories with nothing installed
+function Should-LoadCatalogue([string]$Category, [string]$DestDir, [switch]$IsSkipped) {
+    if ($IsSkipped) { return $false }
+    if ($Uninstall) { return (Test-Path $DestDir) -and ((Get-ChildItem $DestDir -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0) }
+    return $true
+}
+
 Log "Loading resource catalogues..."
-$catAgents       = if (-not $SkipAgents)       { Build-FlatCatalogue (Join-Path $SourceRoot 'agents')       (Join-Path $GithubDir 'agents')       '\.agent\.md$'        'agents'       } else { @() }
-$catInstructions = if (-not $SkipInstructions) { Build-FlatCatalogue (Join-Path $SourceRoot 'instructions') (Join-Path $GithubDir 'instructions') '\.instructions\.md$' 'instructions' } else { @() }
-$catHooks        = if (-not $SkipHooks)        { Build-DirCatalogue  (Join-Path $SourceRoot 'hooks')        (Join-Path $GithubDir 'hooks')                               'hooks'        } else { @() }
-$catWorkflows    = if (-not $SkipWorkflows)    { Build-FlatCatalogue (Join-Path $SourceRoot 'workflows')    (Join-Path $GithubDir 'workflows')    '\.md$'               'workflows'    } else { @() }
-$catSkills       = if (-not $SkipSkills)       { Build-DirCatalogue  (Join-Path $SourceRoot 'skills')       (Join-Path $GithubDir 'skills')                              'skills'       } else { @() }
+$catAgents       = if (Should-LoadCatalogue 'agents'       (Join-Path $GithubDir 'agents')       -IsSkipped:$SkipAgents)       { Build-FlatCatalogue (Join-Path $SourceRoot 'agents')       (Join-Path $GithubDir 'agents')       '\.agent\.md$'        'agents'       } else { @() }
+$catInstructions = if (Should-LoadCatalogue 'instructions' (Join-Path $GithubDir 'instructions') -IsSkipped:$SkipInstructions) { Build-FlatCatalogue (Join-Path $SourceRoot 'instructions') (Join-Path $GithubDir 'instructions') '\.instructions\.md$' 'instructions' } else { @() }
+$catHooks        = if (Should-LoadCatalogue 'hooks'        (Join-Path $GithubDir 'hooks')        -IsSkipped:$SkipHooks)        { Build-DirCatalogue  (Join-Path $SourceRoot 'hooks')        (Join-Path $GithubDir 'hooks')                               'hooks'        } else { @() }
+$catWorkflows    = if (Should-LoadCatalogue 'workflows'    (Join-Path $GithubDir 'workflows')    -IsSkipped:$SkipWorkflows)    { Build-FlatCatalogue (Join-Path $SourceRoot 'workflows')    (Join-Path $GithubDir 'workflows')    '\.md$'               'workflows'    } else { @() }
+$catSkills       = if (Should-LoadCatalogue 'skills'       (Join-Path $GithubDir 'skills')       -IsSkipped:$SkipSkills)       { Build-DirCatalogue  (Join-Path $SourceRoot 'skills')       (Join-Path $GithubDir 'skills')                              'skills'       } else { @() }
 Log "Catalogues loaded. Opening pickers..."
 
 #endregion # Pre-load all catalogues
