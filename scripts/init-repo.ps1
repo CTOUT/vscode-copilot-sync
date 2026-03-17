@@ -30,6 +30,10 @@ Usage:
   # Dry run - show what would be installed
   .\init-repo.ps1 -DryRun
 
+  # Remove installed resources (uninstall mode)
+  .\init-repo.ps1 -Uninstall
+  .\init-repo.ps1 -Uninstall -SkipInstructions -SkipHooks
+
 Notes:
   - Existing files are only overwritten if the source is newer/different.
   - .github/ is created if it doesn't exist.
@@ -56,7 +60,8 @@ Notes:
     [switch]$SkipHooks,
     [switch]$SkipWorkflows,
     [switch]$SkipSkills,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$Uninstall   # show a picker of installed items to remove instead of installing
 )
 
 #region Initialisation
@@ -135,8 +140,7 @@ function Detect-RepoStack {
     }
 
     # Always recommend security and code review for every repo
-    $recs.Add('security')
-    $recs.Add('code-review')
+    $recs.Add('owasp')
 
     return @($recs | Sort-Object -Unique)
 }
@@ -215,8 +219,7 @@ function Prompt-RepoIntent {
         }
     }
 
-    $recs.Add('security')
-    $recs.Add('code-review')
+    $recs.Add('owasp')
     return @($recs | Sort-Object -Unique)
 }
 
@@ -286,27 +289,33 @@ function Select-Items {
     # Sort: recommended (highest score first) then remaining alphabetically.
     $Items = $Items | ForEach-Object {
         $score = Measure-ItemRelevance -ItemName $_.Name -FilePath $_.FullPath -Tags $Tags
-        $_ | Add-Member -NotePropertyName 'IsRecommended' -NotePropertyValue ($score -gt 0) -PassThru -Force |
+        $_ | Add-Member -NotePropertyName 'IsRecommended' -NotePropertyValue ($score -ge 2) -PassThru -Force |
              Add-Member -NotePropertyName 'Score'         -NotePropertyValue $score          -PassThru -Force
-    } | Sort-Object @{ E={ if ($_.IsRecommended) { 0 } else { 1 } } }, @{ E={ -$_.Score } }, Name
+    } | Sort-Object @{ E={ if ($_.IsRecommended) { 0 } else { 1 } } }, @{ E={ if ($_.AlreadyInstalled) { 0 } else { 1 } } }, @{ E={ -$_.Score } }, Name
 
     Write-Host ""
     Write-Host "  === $Category ===" -ForegroundColor Yellow
-    Write-Host "  Already installed items are marked with [*]" -ForegroundColor DarkGray
+    Write-Host "  [*]=Installed  [↑]=Update available  [~]=Locally modified  ★=Recommended" -ForegroundColor DarkGray
 
     # Try Out-GridView (Windows GUI - filterable, multi-select)
     $ogvAvailable = $false
     try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
 
     if ($ogvAvailable) {
-        $none = [pscustomobject]@{ Rec=''; Installed=''; Name='-- none / skip --'; Description='Select this (or nothing) to install nothing' }
+        $none = [pscustomobject]@{ Rec=''; Status=''; Name='-- none / skip --'; Description='Select this (or nothing) to install nothing' }
         $display = @($none) + @($Items | Select-Object `
-            @{ N='Rec';       E={ if ($_.IsRecommended) { '★' } else { '' } } },
-            @{ N='Installed'; E={ if ($_.AlreadyInstalled) { '[*]' } else { '' } } },
-            @{ N='Name';      E={ $_.Name } },
+            @{ N='Rec';    E={ if ($_.IsRecommended) { '★' } else { '' } } },
+            @{ N='Status'; E={
+                $s = ''
+                if ($_.AlreadyInstalled)  { $s += '[*]' }
+                if ($_.UpdateAvailable)   { $s += '[↑]' }
+                if ($_.LocallyModified)   { $s += '[~]' }
+                $s
+            }},
+            @{ N='Name';        E={ $_.Name } },
             @{ N='Description'; E={ $_.Description } })
 
-        $picked = $display | Out-GridView -Title "Select $Category to install   ★ = Recommended   [*] = Already installed" -PassThru
+        $picked = $display | Out-GridView -Title "Select $Category   ★=Recommended  [*]=Installed  [↑]=Update  [~]=Modified" -PassThru
         if (-not $picked) { return @() }
         $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
         return @($Items | Where-Object { $pickedNames -contains $_.Name })
@@ -315,10 +324,16 @@ function Select-Items {
     # Fallback: numbered console menu
     Write-Host ""
     for ($i = 0; $i -lt $Items.Count; $i++) {
-        $mark = if ($Items[$i].AlreadyInstalled) { '[*]' } elseif ($Items[$i].IsRecommended) { '[★]' } else { '   ' }
-        Write-Host ("  {0,3}. {1} {2}" -f ($i+1), $mark, $Items[$i].Name) -ForegroundColor $(if ($Items[$i].AlreadyInstalled) { 'DarkCyan' } elseif ($Items[$i].IsRecommended) { 'Yellow' } else { 'White' })
-        if ($Items[$i].Description) {
-            Write-Host ("       {0}" -f $Items[$i].Description) -ForegroundColor DarkGray
+        $item = $Items[$i]
+        $status = ''
+        if ($item.AlreadyInstalled) { $status += '[*]' }
+        if ($item.UpdateAvailable)  { $status += '[↑]' }
+        if ($item.LocallyModified)  { $status += '[~]' }
+        $rec  = if ($item.IsRecommended) { '[★]' } else { '   ' }
+        $color = if ($item.UpdateAvailable) { 'Cyan' } elseif ($item.AlreadyInstalled) { 'DarkCyan' } elseif ($item.IsRecommended) { 'Yellow' } else { 'White' }
+        Write-Host ("  {0,3}. {1} {2,-6} {3}" -f ($i+1), $rec, $status, $item.Name) -ForegroundColor $color
+        if ($item.Description) {
+            Write-Host ("             {0}" -f $item.Description) -ForegroundColor DarkGray
         }
     }
     Write-Host ""
@@ -338,6 +353,81 @@ function Select-Items {
         }
     }
     return @($Items | Where-Object { $indices -contains ([Array]::IndexOf($Items, $_) + 1) })
+}
+
+function Select-ToRemove {
+    <#
+    .SYNOPSIS
+    Shows a picker of script-managed installed items and returns those the user wants to remove.
+    Only items recorded in .copilot-subscriptions.json are offered — never user-created files.
+    Locally-modified items are flagged with [~] as a removal warning.
+    #>
+    param(
+        [string]$Category,
+        [object[]]$Items    # full catalogue with ManagedByScript, LocallyModified flags
+    )
+
+    # Only offer items this script installed — never user-created files
+    $removable = @($Items | Where-Object { $_.AlreadyInstalled -and $_.ManagedByScript })
+    if ($removable.Count -eq 0) {
+        Log "No script-managed $Category to remove." 'INFO'
+        return @()
+    }
+
+    $ogvAvailable = $false
+    try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
+
+    if ($ogvAvailable) {
+        $display = @($removable | Select-Object `
+            @{ N='Modified';    E={ if ($_.LocallyModified) { '[~] MODIFIED' } else { '' } } },
+            @{ N='Name';        E={ $_.Name } },
+            @{ N='Description'; E={ $_.Description } })
+        $picked = $display | Out-GridView -Title "Select $Category to REMOVE   [~]=Locally modified (removal is permanent)" -PassThru
+        if (-not $picked) { return @() }
+        $pickedNames = @($picked | ForEach-Object { $_.Name })
+        return @($removable | Where-Object { $pickedNames -contains $_.Name })
+    }
+
+    Write-Host ""
+    Write-Host "  === Remove $Category ===" -ForegroundColor Red
+    Write-Host "  [~] = locally modified — removal is permanent" -ForegroundColor DarkGray
+    for ($i = 0; $i -lt $removable.Count; $i++) {
+        $mod   = if ($removable[$i].LocallyModified) { '[~]' } else { '   ' }
+        $color = if ($removable[$i].LocallyModified) { 'Yellow' } else { 'DarkCyan' }
+        Write-Host ("  {0,3}. {1} {2}" -f ($i+1), $mod, $removable[$i].Name) -ForegroundColor $color
+        if ($removable[$i].Description) {
+            Write-Host ("           {0}" -f $removable[$i].Description) -ForegroundColor DarkGray
+        }
+    }
+    Write-Host ""
+    Write-Host "  Enter numbers to REMOVE (e.g. 1,3 or blank to skip): " -NoNewline -ForegroundColor Red
+    $input = Read-Host
+    if (-not $input -or $input.Trim() -eq '') { return @() }
+
+    $indices = @()
+    foreach ($part in $input.Split(',')) {
+        $part = $part.Trim()
+        if ($part -match '^(\d+)-(\d+)$') {
+            $indices += ([int]$Matches[1])..[int]$Matches[2]
+        } elseif ($part -match '^\d+$') {
+            $indices += [int]$part
+        }
+    }
+    return @($removable | Where-Object { $indices -contains ([Array]::IndexOf($removable, $_) + 1) })
+}
+
+function Remove-File {
+    param([string]$FilePath)
+    if ($DryRun) { return 'would-remove' }
+    if (Test-Path $FilePath) { Remove-Item $FilePath -Force; return 'removed' }
+    return 'not-found'
+}
+
+function Remove-Directory {
+    param([string]$DirPath)
+    if ($DryRun) { return 'would-remove' }
+    if (Test-Path $DirPath) { Remove-Item $DirPath -Recurse -Force; return 'removed' }
+    return 'not-found'
 }
 
 function Install-File {
@@ -495,60 +585,143 @@ function Update-Subscriptions {
 #region Catalogue builders
 $totalInstalled = 0
 
-function Build-FlatCatalogue([string]$CatDir, [string]$DestDir, [string]$Pattern) {
+function Build-FlatCatalogue([string]$CatDir, [string]$DestDir, [string]$Pattern, [string]$Category) {
     if (-not (Test-Path $CatDir)) { return @() }
     Get-ChildItem $CatDir -File | Where-Object { $_.Name -match $Pattern } | ForEach-Object {
-        $destFile = Join-Path $DestDir $_.Name
+        $destFile  = Join-Path $DestDir $_.Name
+        $itemName  = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.(instructions|agent|prompt|chatmode)$',''
+        $subKey    = "$Category|$itemName"
+        $subEntry  = $script:SubIndex[$subKey]
+        $installed = Test-Path $destFile
+
+        $updateAvailable  = $false
+        $locallyModified  = $false
+        $managedByScript  = $null -ne $subEntry
+
+        if ($installed -and $subEntry) {
+            $srcHash     = (Get-FileHash $_.FullName   -Algorithm SHA256).Hash
+            $currentHash = (Get-FileHash $destFile     -Algorithm SHA256).Hash
+            $locallyModified  = $currentHash -ne $subEntry.hashAtInstall
+            $updateAvailable  = $srcHash -ne $currentHash
+        }
+
         [pscustomobject]@{
-            Name             = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.(instructions|agent|prompt|chatmode)$',''
+            Name             = $itemName
             FileName         = $_.Name
             FullPath         = $_.FullName
             Description      = Get-Description $_.FullName
-            AlreadyInstalled = (Test-Path $destFile)
+            AlreadyInstalled = $installed
+            ManagedByScript  = $managedByScript
+            UpdateAvailable  = $updateAvailable
+            LocallyModified  = $locallyModified
         }
     } | Sort-Object Name
 }
 
-function Build-DirCatalogue([string]$CatDir, [string]$DestDir) {
+function Build-DirCatalogue([string]$CatDir, [string]$DestDir, [string]$Category) {
     if (-not (Test-Path $CatDir)) { return @() }
     Get-ChildItem $CatDir -Directory | ForEach-Object {
         $destSubdir = Join-Path $DestDir $_.Name
         $readmePath = Join-Path $_.FullName 'README.md'
         if (-not (Test-Path $readmePath)) { $readmePath = Join-Path $_.FullName 'SKILL.md' }
+        $subKey   = "$Category|$($_.Name)"
+        $subEntry = $script:SubIndex[$subKey]
+        $installed = Test-Path $destSubdir
+
+        $updateAvailable = $false
+        $locallyModified = $false
+        $managedByScript = $null -ne $subEntry
+
+        if ($installed -and $subEntry) {
+            $srcHash     = Get-DirHash $_.FullName
+            $currentHash = Get-DirHash $destSubdir
+            $locallyModified  = $currentHash -ne $subEntry.hashAtInstall
+            $updateAvailable  = $srcHash -ne $currentHash
+        }
+
         [pscustomobject]@{
             Name             = $_.Name
             FullPath         = $_.FullName
             Description      = if (Test-Path $readmePath) { Get-Description $readmePath } else { '' }
-            AlreadyInstalled = (Test-Path $destSubdir)
+            AlreadyInstalled = $installed
+            ManagedByScript  = $managedByScript
+            UpdateAvailable  = $updateAvailable
+            LocallyModified  = $locallyModified
         }
     } | Sort-Object Name
 }
 
 #endregion # Catalogue builders
 
-#region Agents
+#region Subscription manifest
 $script:SubscriptionEntries   = [System.Collections.Generic.List[object]]::new()
 $SubscriptionManifestPath     = Join-Path $GithubDir '.copilot-subscriptions.json'
 
+# Load existing manifest into a lookup: "category|name" -> subscription entry
+$script:SubIndex = @{}
+if (Test-Path $SubscriptionManifestPath) {
+    try {
+        $existingSubs = Get-Content $SubscriptionManifestPath -Raw | ConvertFrom-Json
+        if ($existingSubs.subscriptions) {
+            foreach ($s in $existingSubs.subscriptions) {
+                $script:SubIndex["$($s.category)|$($s.name)"] = $s
+            }
+        }
+    } catch { Log "Could not parse subscriptions manifest: $_" 'WARN' }
+}
+
+function Remove-SubscriptionEntries {
+    param([string]$ManifestPath, [string[]]$Keys)  # Keys = "category|name"
+    if (-not (Test-Path $ManifestPath)) { return }
+    if ($DryRun) { Log "[DryRun] Would remove $($Keys.Count) subscription(s) from manifest"; return }
+    try {
+        $subs = Get-Content $ManifestPath -Raw | ConvertFrom-Json
+        if (-not $subs.subscriptions) { return }
+        $kept = @($subs.subscriptions | Where-Object { $Keys -notcontains "$($_.category)|$($_.name)" })
+        $subs | Add-Member -NotePropertyName 'subscriptions' -NotePropertyValue $kept   -Force
+        $subs | Add-Member -NotePropertyName 'updatedAt'     -NotePropertyValue (Get-Date).ToString('o') -Force
+        $subs | ConvertTo-Json -Depth 5 | Set-Content $ManifestPath -Encoding UTF8
+    } catch { Log "Could not update subscriptions manifest: $_" 'WARN' }
+}
+
+#endregion # Subscription manifest
+
+#region Agents
+$script:AllCatalogues = [System.Collections.Generic.List[object]]::new()
+
 if (-not $SkipAgents) {
     $destDir   = Join-Path $GithubDir 'agents'
-    $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'agents') $destDir '\.agent\.md$'
-    $selected  = Select-Items -Category 'Agents' -Items $catalogue -PreSelected $Agents -Tags $script:Recommendations
+    $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'agents') $destDir '\.agent\.md$' 'agents'
+    $script:AllCatalogues.Add([pscustomobject]@{ Category='agents'; Type='file'; Items=$catalogue; DestDir=$destDir })
 
-    foreach ($item in $selected) {
-        $result = Install-File -Src $item.FullPath -DestDir $destDir
-        $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
-        Log "$verb  agent: $($item.FileName)"
-        if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
-        $script:SubscriptionEntries.Add([pscustomobject]@{
-            name          = $item.Name
-            category      = 'agents'
-            type          = 'file'
-            fileName      = $item.FileName
-            sourceRelPath = "agents/$($item.FileName)"
-            hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
-            installedAt   = (Get-Date).ToString('o')
-        })
+    if ($Uninstall) {
+        $toRemove = Select-ToRemove -Category 'Agents' -Items $catalogue
+        foreach ($item in $toRemove) {
+            $result = Remove-File -FilePath (Join-Path $destDir $item.FileName)
+            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+            Log "$verb  agent: $($item.FileName)"
+        }
+        if ($toRemove.Count -gt 0) {
+            Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "agents|$($_.Name)" })
+        }
+    } else {
+        $selected  = Select-Items -Category 'Agents' -Items $catalogue -PreSelected $Agents -Tags $script:Recommendations
+
+        foreach ($item in $selected) {
+            $result = Install-File -Src $item.FullPath -DestDir $destDir
+            $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
+            Log "$verb  agent: $($item.FileName)"
+            if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
+            $script:SubscriptionEntries.Add([pscustomobject]@{
+                name          = $item.Name
+                category      = 'agents'
+                type          = 'file'
+                fileName      = $item.FileName
+                sourceRelPath = "agents/$($item.FileName)"
+                hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
+                installedAt   = (Get-Date).ToString('o')
+            })
+        }
     }
 }
 
@@ -557,23 +730,37 @@ if (-not $SkipAgents) {
 #region Instructions
 if (-not $SkipInstructions) {
     $destDir  = Join-Path $GithubDir 'instructions'
-    $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'instructions') $destDir '\.instructions\.md$'
-    $selected  = Select-Items -Category 'Instructions' -Items $catalogue -PreSelected $Instructions -Tags $script:Recommendations
+    $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'instructions') $destDir '\.instructions\.md$' 'instructions'
+    $script:AllCatalogues.Add([pscustomobject]@{ Category='instructions'; Type='file'; Items=$catalogue; DestDir=$destDir })
 
-    foreach ($item in $selected) {
-        $result = Install-File -Src $item.FullPath -DestDir $destDir
-        $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
-        Log "$verb  instructions: $($item.FileName)"
-        if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
-        $script:SubscriptionEntries.Add([pscustomobject]@{
-            name          = $item.Name
-            category      = 'instructions'
-            type          = 'file'
-            fileName      = $item.FileName
-            sourceRelPath = "instructions/$($item.FileName)"
-            hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
-            installedAt   = (Get-Date).ToString('o')
-        })
+    if ($Uninstall) {
+        $toRemove = Select-ToRemove -Category 'Instructions' -Items $catalogue
+        foreach ($item in $toRemove) {
+            $result = Remove-File -FilePath (Join-Path $destDir $item.FileName)
+            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+            Log "$verb  instructions: $($item.FileName)"
+        }
+        if ($toRemove.Count -gt 0) {
+            Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "instructions|$($_.Name)" })
+        }
+    } else {
+        $selected  = Select-Items -Category 'Instructions' -Items $catalogue -PreSelected $Instructions -Tags $script:Recommendations
+
+        foreach ($item in $selected) {
+            $result = Install-File -Src $item.FullPath -DestDir $destDir
+            $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
+            Log "$verb  instructions: $($item.FileName)"
+            if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
+            $script:SubscriptionEntries.Add([pscustomobject]@{
+                name          = $item.Name
+                category      = 'instructions'
+                type          = 'file'
+                fileName      = $item.FileName
+                sourceRelPath = "instructions/$($item.FileName)"
+                hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
+                installedAt   = (Get-Date).ToString('o')
+            })
+        }
     }
 }
 
@@ -582,23 +769,37 @@ if (-not $SkipInstructions) {
 #region Hooks
 if (-not $SkipHooks) {
     $destDir   = Join-Path $GithubDir 'hooks'
-    $catalogue  = Build-DirCatalogue (Join-Path $SourceRoot 'hooks') $destDir
-    $selected   = Select-Items -Category 'Hooks' -Items $catalogue -PreSelected $Hooks -Recommended $script:Recommendations
+    $catalogue  = Build-DirCatalogue (Join-Path $SourceRoot 'hooks') $destDir 'hooks'
+    $script:AllCatalogues.Add([pscustomobject]@{ Category='hooks'; Type='directory'; Items=$catalogue; DestDir=$destDir })
 
-    foreach ($item in $selected) {
-        $r = Install-Directory -SrcDir $item.FullPath -DestParent $destDir
-        $verb = if ($DryRun) { '~ DryRun' } else { '✓ Installed' }
-        Log "$verb  hook: $($item.Name) (added=$($r.Added) updated=$($r.Updated) unchanged=$($r.Unchanged))"
-        if (-not $DryRun) { $totalInstalled++ }
-        $script:SubscriptionEntries.Add([pscustomobject]@{
-            name          = $item.Name
-            category      = 'hooks'
-            type          = 'directory'
-            dirName       = $item.Name
-            sourceRelPath = "hooks/$($item.Name)"
-            hashAtInstall = Get-DirHash $item.FullPath
-            installedAt   = (Get-Date).ToString('o')
-        })
+    if ($Uninstall) {
+        $toRemove = Select-ToRemove -Category 'Hooks' -Items $catalogue
+        foreach ($item in $toRemove) {
+            $result = Remove-Directory -DirPath (Join-Path $destDir $item.Name)
+            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+            Log "$verb  hook: $($item.Name)"
+        }
+        if ($toRemove.Count -gt 0) {
+            Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "hooks|$($_.Name)" })
+        }
+    } else {
+        $selected   = Select-Items -Category 'Hooks' -Items $catalogue -PreSelected $Hooks -Tags $script:Recommendations
+
+        foreach ($item in $selected) {
+            $r = Install-Directory -SrcDir $item.FullPath -DestParent $destDir
+            $verb = if ($DryRun) { '~ DryRun' } else { '✓ Installed' }
+            Log "$verb  hook: $($item.Name) (added=$($r.Added) updated=$($r.Updated) unchanged=$($r.Unchanged))"
+            if (-not $DryRun) { $totalInstalled++ }
+            $script:SubscriptionEntries.Add([pscustomobject]@{
+                name          = $item.Name
+                category      = 'hooks'
+                type          = 'directory'
+                dirName       = $item.Name
+                sourceRelPath = "hooks/$($item.Name)"
+                hashAtInstall = Get-DirHash $item.FullPath
+                installedAt   = (Get-Date).ToString('o')
+            })
+        }
     }
 }
 
@@ -607,23 +808,37 @@ if (-not $SkipHooks) {
 #region Workflows
 if (-not $SkipWorkflows) {
     $destDir  = Join-Path $GithubDir 'workflows'
-    $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'workflows') $destDir '\.md$'
-    $selected  = Select-Items -Category 'Agentic Workflows' -Items $catalogue -PreSelected $Workflows -Recommended $script:Recommendations
+    $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'workflows') $destDir '\.md$' 'workflows'
+    $script:AllCatalogues.Add([pscustomobject]@{ Category='workflows'; Type='file'; Items=$catalogue; DestDir=$destDir })
 
-    foreach ($item in $selected) {
-        $result = Install-File -Src $item.FullPath -DestDir $destDir
-        $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
-        Log "$verb  workflow: $($item.FileName)"
-        if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
-        $script:SubscriptionEntries.Add([pscustomobject]@{
-            name          = $item.Name
-            category      = 'workflows'
-            type          = 'file'
-            fileName      = $item.FileName
-            sourceRelPath = "workflows/$($item.FileName)"
-            hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
-            installedAt   = (Get-Date).ToString('o')
-        })
+    if ($Uninstall) {
+        $toRemove = Select-ToRemove -Category 'Agentic Workflows' -Items $catalogue
+        foreach ($item in $toRemove) {
+            $result = Remove-File -FilePath (Join-Path $destDir $item.FileName)
+            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+            Log "$verb  workflow: $($item.FileName)"
+        }
+        if ($toRemove.Count -gt 0) {
+            Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "workflows|$($_.Name)" })
+        }
+    } else {
+        $selected  = Select-Items -Category 'Agentic Workflows' -Items $catalogue -PreSelected $Workflows -Tags $script:Recommendations
+
+        foreach ($item in $selected) {
+            $result = Install-File -Src $item.FullPath -DestDir $destDir
+            $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
+            Log "$verb  workflow: $($item.FileName)"
+            if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
+            $script:SubscriptionEntries.Add([pscustomobject]@{
+                name          = $item.Name
+                category      = 'workflows'
+                type          = 'file'
+                fileName      = $item.FileName
+                sourceRelPath = "workflows/$($item.FileName)"
+                hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
+                installedAt   = (Get-Date).ToString('o')
+            })
+        }
     }
 }
 
@@ -632,39 +847,95 @@ if (-not $SkipWorkflows) {
 #region Skills
 if (-not $SkipSkills) {
     $destDir   = Join-Path $GithubDir 'skills'
-    $catalogue = Build-DirCatalogue (Join-Path $SourceRoot 'skills') $destDir
-    $selected  = Select-Items -Category 'Skills' -Items $catalogue -PreSelected $Skills -Recommended $script:Recommendations
+    $catalogue = Build-DirCatalogue (Join-Path $SourceRoot 'skills') $destDir 'skills'
+    $script:AllCatalogues.Add([pscustomobject]@{ Category='skills'; Type='directory'; Items=$catalogue; DestDir=$destDir })
 
-    foreach ($item in $selected) {
-        $r = Install-Directory -SrcDir $item.FullPath -DestParent $destDir
-        $verb = if ($DryRun) { '~ DryRun' } else { '✓ Installed' }
-        Log "$verb  skill: $($item.Name) (added=$($r.Added) updated=$($r.Updated) unchanged=$($r.Unchanged))"
-        if (-not $DryRun) { $totalInstalled++ }
-        $script:SubscriptionEntries.Add([pscustomobject]@{
-            name          = $item.Name
-            category      = 'skills'
-            type          = 'directory'
-            dirName       = $item.Name
-            sourceRelPath = "skills/$($item.Name)"
-            hashAtInstall = Get-DirHash $item.FullPath
-            installedAt   = (Get-Date).ToString('o')
-        })
+    if ($Uninstall) {
+        $toRemove = Select-ToRemove -Category 'Skills' -Items $catalogue
+        foreach ($item in $toRemove) {
+            $result = Remove-Directory -DirPath (Join-Path $destDir $item.Name)
+            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+            Log "$verb  skill: $($item.Name)"
+        }
+        if ($toRemove.Count -gt 0) {
+            Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "skills|$($_.Name)" })
+        }
+    } else {
+        $selected  = Select-Items -Category 'Skills' -Items $catalogue -PreSelected $Skills -Tags $script:Recommendations
+
+        foreach ($item in $selected) {
+            $r = Install-Directory -SrcDir $item.FullPath -DestParent $destDir
+            $verb = if ($DryRun) { '~ DryRun' } else { '✓ Installed' }
+            Log "$verb  skill: $($item.Name) (added=$($r.Added) updated=$($r.Updated) unchanged=$($r.Unchanged))"
+            if (-not $DryRun) { $totalInstalled++ }
+            $script:SubscriptionEntries.Add([pscustomobject]@{
+                name          = $item.Name
+                category      = 'skills'
+                type          = 'directory'
+                dirName       = $item.Name
+                sourceRelPath = "skills/$($item.Name)"
+                hashAtInstall = Get-DirHash $item.FullPath
+                installedAt   = (Get-Date).ToString('o')
+            })
+        }
     }
 }
 
 #endregion # Skills
 
 #region Summary
+
+# Auto-adopt items that are already installed in .github/ but not yet in the manifest
+# (e.g. installed by a previous version of this script before tracking was added).
+# Uses the current installed file hash as hashAtInstall — they'll show [↑] if upstream has moved on.
+if (-not $Uninstall -and -not $DryRun) {
+    foreach ($cat in $script:AllCatalogues) {
+        $untracked = @($cat.Items | Where-Object { $_.AlreadyInstalled -and -not $_.ManagedByScript })
+        foreach ($item in $untracked) {
+            $installedPath = if ($cat.Type -eq 'file') {
+                Join-Path $cat.DestDir $item.FileName
+            } else {
+                Join-Path $cat.DestDir $item.Name
+            }
+            $adoptedHash = if ($cat.Type -eq 'file') {
+                (Get-FileHash $installedPath -Algorithm SHA256).Hash
+            } else {
+                Get-DirHash $installedPath
+            }
+            $entry = [pscustomobject]@{
+                name          = $item.Name
+                category      = $cat.Category
+                type          = $cat.Type
+                installedAt   = (Get-Item $installedPath).LastWriteTime.ToString('o')
+                hashAtInstall = $adoptedHash
+                adopted       = $true   # flag so we know this was auto-adopted not explicitly chosen
+            }
+            if ($cat.Type -eq 'file') {
+                $entry | Add-Member -NotePropertyName 'fileName'      -NotePropertyValue $item.FileName                              -Force
+                $entry | Add-Member -NotePropertyName 'sourceRelPath' -NotePropertyValue "$($cat.Category)/$($item.FileName)"        -Force
+            } else {
+                $entry | Add-Member -NotePropertyName 'dirName'       -NotePropertyValue $item.Name                                  -Force
+                $entry | Add-Member -NotePropertyName 'sourceRelPath' -NotePropertyValue "$($cat.Category)/$($item.Name)"            -Force
+            }
+            $script:SubscriptionEntries.Add($entry)
+            Log "Adopted existing install into manifest: $($cat.Category)/$($item.Name)"
+        }
+    }
+}
+
 if ($script:SubscriptionEntries.Count -gt 0) {
     Update-Subscriptions -ManifestPath $SubscriptionManifestPath -NewEntries $script:SubscriptionEntries.ToArray()
 }
 
 Write-Host ""
-if ($DryRun) {
+if ($Uninstall) {
+    Log "Uninstall complete." 'SUCCESS'
+} elseif ($DryRun) {
     Log "Dry run complete. Re-run without -DryRun to apply." 'WARN'
 } else {
     Log "$totalInstalled resource(s) installed/updated in $GithubDir" 'SUCCESS'
     Log "Tip: commit .github/ to share Copilot resources with your team (agents, instructions, hooks, workflows, skills)."
     Log "Tip: run update-repo.ps1 to check for and apply upstream changes to your subscribed resources."
+    Log "Tip: run init-repo.ps1 -Uninstall to remove any installed resources."
 }
 #endregion # Summary

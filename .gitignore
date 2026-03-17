@@ -12,6 +12,7 @@ Thumbs.db
 
 # macOS
 .DS_Store
+
 # Local cache (managed by sync-awesome-copilot.ps1 - not committed)
 .awesome-copilot/
 
@@ -19,3 +20,15 @@ Thumbs.db
 *.tmp
 *.bak
 ~$*
+
+# Per-repo Copilot resources installed from github/awesome-copilot
+# These belong to the awesome-copilot community — not ours to redistribute.
+# Commit these in YOUR projects; exclude them here (demo/tooling repo only).
+.github/agents/
+.github/hooks/
+.github/instructions/
+.github/skills/
+# Only ignore copilot agentic workflow .md files — not GitHub Actions .yml files
+.github/workflows/*.md
+# Subscription tracking manifest (local state, not redistributed)
+.github/.copilot-subscriptions.json

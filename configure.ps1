@@ -4,10 +4,9 @@ Configure Copilot Resources
 Main entry point for all Copilot resource management operations.
 Chains the scripts in the correct order:
 
-  1. sync-awesome-copilot.ps1       -- fetch latest from github/awesome-copilot
-  2. publish-global.ps1             -- publish agents + skills globally
-  3. init-repo.ps1                  -- (prompted) per-repo .github/ setup
-  4. install/uninstall-scheduled-task.ps1  -- (explicit) automate sync + publish
+  1. sync-awesome-copilot.ps1   -- fetch latest from github/awesome-copilot
+  2. publish-global.ps1         -- publish agents + skills globally
+  3. init-repo.ps1              -- (prompted) per-repo .github/ setup
 
 Usage:
   # Full interactive run: sync + publish + prompt for init-repo
@@ -19,28 +18,20 @@ Usage:
   # Re-publish only (cache already up to date)
   .\configure.ps1 -SkipSync -SkipInit
 
-  # Install scheduled task (sync every 4h + publish globally)
-  .\configure.ps1 -SkipInit -InstallTask
-
-  # Install task with custom interval
-  .\configure.ps1 -SkipInit -InstallTask -Every "2h"
-
-  # Uninstall scheduled task
-  .\configure.ps1 -SkipSync -SkipPublish -SkipInit -UninstallTask
-
   # Preview without writing any files
   .\configure.ps1 -DryRun
 
   # Init a specific repo (not the current working directory)
   .\configure.ps1 -SkipSync -SkipPublish -RepoPath "C:\Projects\my-app"
+
+  # Remove installed .github/ resources from the current repo
+  .\configure.ps1 -Uninstall
 #>
 [CmdletBinding()] param(
     [switch]$SkipSync,
     [switch]$SkipPublish,
     [switch]$SkipInit,
-    [switch]$InstallTask,
-    [switch]$UninstallTask,
-    [string]$Every = '4h',      # Interval for -InstallTask (e.g. 4h, 30m)
+    [switch]$Uninstall,     # Remove installed .github/ resources via init-repo -Uninstall
     [string]$RepoPath = (Get-Location).Path,
     [switch]$DryRun
 )
@@ -72,11 +63,7 @@ if (Test-Path $manifest) {
     Log "No local cache found — sync will download everything fresh." 'WARN'
 }
 
-if ($InstallTask -and $UninstallTask) {
-    Log "-InstallTask and -UninstallTask cannot both be set." 'ERROR'; exit 1
-}
-# Task management implies no interactive repo setup
-if ($InstallTask -or $UninstallTask) { $SkipInit = $true }
+if ($Uninstall) { $SkipSync = $true; $SkipPublish = $true }
 
 #endregion # Initialisation
 
@@ -121,13 +108,15 @@ if (-not $SkipInit) {
     }
 
     Step "Init repo"
-    Write-Host "  Add agents/instructions/hooks/workflows/skills to .github/ in the current repo?" -ForegroundColor Yellow
+    $initPrompt = if ($Uninstall) { "Remove agents/instructions/hooks/workflows/skills from .github/?" } else { "Add agents/instructions/hooks/workflows/skills to .github/ in the current repo?" }
+    Write-Host "  $initPrompt" -ForegroundColor Yellow
     Write-Host "  [Y] Yes   [N] No (default): " -NoNewline -ForegroundColor Yellow
     $answer = (Read-Host).Trim()
     if ($answer -match '^[Yy]') {
         $initArgs = @{}
-        if ($DryRun) { $initArgs['DryRun'] = $true }
-        if ($RepoPath) { $initArgs['RepoPath'] = $RepoPath }
+        if ($DryRun)     { $initArgs['DryRun']    = $true }
+        if ($RepoPath)   { $initArgs['RepoPath']  = $RepoPath }
+        if ($Uninstall)  { $initArgs['Uninstall'] = $true }
         & (Join-Path $ScriptDir 'init-repo.ps1') @initArgs
     } else {
         Log "init-repo skipped."
@@ -135,40 +124,6 @@ if (-not $SkipInit) {
 }
 
 #endregion # Step 3
-
-#region Step 4 — Scheduled task
-if ($InstallTask) {
-    Step "Install scheduled task"
-    if ($DryRun) {
-        Log "[DryRun] Would install scheduled task (every $Every): sync + publish-global"
-    } else {
-        $taskArgs = @{ Every = $Every }
-        $taskName = 'AwesomeCopilotSync'
-        $proceed  = $true
-        if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
-            Log "Scheduled task '$taskName' already exists." 'WARN'
-            Write-Host "  Overwrite existing task? [Y] Yes   [N] No (default): " -NoNewline -ForegroundColor Yellow
-            if ((Read-Host).Trim() -match '^[Yy]') {
-                $taskArgs['Force'] = $true
-            } else {
-                Log "Task install skipped."
-                $proceed = $false
-            }
-        }
-        if ($proceed) { & (Join-Path $ScriptDir 'install-scheduled-task.ps1') @taskArgs }
-    }
-}
-
-if ($UninstallTask) {
-    Step "Uninstall scheduled task"
-    if ($DryRun) {
-        Log "[DryRun] Would uninstall scheduled task"
-    } else {
-        & (Join-Path $ScriptDir 'uninstall-scheduled-task.ps1')
-    }
-}
-
-#endregion # Step 4
 
 Write-Host ""
 Log "Done." 'SUCCESS'
