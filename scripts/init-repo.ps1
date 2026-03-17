@@ -77,22 +77,29 @@ function Log($m, [string]$level = 'INFO') {
 function Show-OGV {
     # Wrapper around Out-GridView that activates the window via WScript.Shell.AppActivate,
     # which bypasses UIPI restrictions that block SetForegroundWindow from runspaces.
-    param([Parameter(ValueFromPipeline)][object[]]$InputObject, [string]$Title, [switch]$PassThru)
+    # SearchKey is a plain ASCII fragment of the title used for window matching — avoids
+    # unicode chars (★ etc.) that may cause AppActivate to fail the lookup.
+    param([Parameter(ValueFromPipeline)][object[]]$InputObject, [string]$Title, [string]$SearchKey, [switch]$PassThru)
     begin   { $all = [System.Collections.Generic.List[object]]::new() }
     process { foreach ($i in $InputObject) { $all.Add($i) } }
     end {
+        $key = if ($SearchKey) { $SearchKey } else { ($Title -replace '[^\x20-\x7E]','').Trim() }
         $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
         $rs.Open()
         $ps = [System.Management.Automation.PowerShell]::Create()
         $ps.Runspace = $rs
         $null = $ps.AddScript({
-            param($t)
+            param($k)
             $wsh = New-Object -ComObject WScript.Shell
             for ($i = 0; $i -lt 50; $i++) {   # poll up to 5 s
                 Start-Sleep -Milliseconds 100
-                if ($wsh.AppActivate($t)) { break }
+                if ($wsh.AppActivate($k)) {
+                    Start-Sleep -Milliseconds 150   # brief pause then re-activate to counter focus-steal
+                    $wsh.AppActivate($k)
+                    break
+                }
             }
-        }).AddArgument($Title)
+        }).AddArgument($key)
         $handle = $ps.BeginInvoke()
 
         if ($PassThru) { $result = $all | Out-GridView -Title $Title -PassThru }
@@ -348,7 +355,7 @@ function Select-Items {
             @{ N='Name';        E={ $_.Name } },
             @{ N='Description'; E={ $_.Description } })
 
-        $picked = $display | Show-OGV -Title "Select $Category   ★=Recommended (config-free)  [*]=Installed  [↑]=Update  [~]=Modified  [!]=Setup required" -PassThru
+        $picked = $display | Show-OGV -Title "Select $Category   ★=Recommended (config-free)  [*]=Installed  [↑]=Update  [~]=Modified  [!]=Setup required" -SearchKey "Select $Category" -PassThru
         if (-not $picked) { return @() }
         $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
         return @($Items | Where-Object { $pickedNames -contains $_.Name })
@@ -416,7 +423,7 @@ function Select-ToRemove {
             @{ N='Modified';    E={ if ($_.LocallyModified) { '[~] MODIFIED' } else { '' } } },
             @{ N='Name';        E={ $_.Name } },
             @{ N='Description'; E={ $_.Description } })
-        $picked = $display | Show-OGV -Title "Select $Category to REMOVE   [~]=Locally modified (removal is permanent)" -PassThru
+        $picked = $display | Show-OGV -Title "Select $Category to REMOVE   [~]=Locally modified (removal is permanent)" -SearchKey "Select $Category to REMOVE" -PassThru
         if (-not $picked) { return @() }
         $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
         return @($removable | Where-Object { $pickedNames -contains $_.Name })
