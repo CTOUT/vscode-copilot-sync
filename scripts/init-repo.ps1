@@ -139,8 +139,9 @@ function Detect-RepoStack {
         } catch {}
     }
 
-    # Always recommend security and code review for every repo
+    # Always recommend security-focused resources for every repo
     $recs.Add('owasp')
+    $recs.Add('security')
 
     return @($recs | Sort-Object -Unique)
 }
