@@ -1,23 +1,21 @@
 # VS Code Copilot Resource Sync
 
-A collection of PowerShell scripts to sync, publish, and manage [GitHub Copilot](https://github.com/features/copilot) resources from the [awesome-copilot](https://github.com/github/awesome-copilot) community repository — globally to VS Code and per-repo to `.github/`.
+A collection of PowerShell scripts to sync and manage [GitHub Copilot](https://github.com/features/copilot) resources from the [awesome-copilot](https://github.com/github/awesome-copilot) community repository — cherry-picking exactly what each repo needs into `.github/`.
 
 ## 🎯 What This Does
 
 1. **Syncs** the latest agents, instructions, hooks, workflows, and skills from [awesome-copilot](https://github.com/github/awesome-copilot) into a local cache (`~/.awesome-copilot/`)
-2. **Publishes globally** — agents to VS Code's user prompts folder (available in all workspaces), skills to `~/.copilot/skills/`
-3. **Initialises repos** — intelligently recommends and installs resources into a repo's `.github/` folder based on detected language/framework, with full install/update/remove lifecycle management
+2. **Initialises repos** — intelligently recommends and installs resources into a repo's `.github/` folder based on detected language/framework, with full install/update/remove lifecycle management
 
 ### What goes where
 
-| Resource         | Scope       | Location                                                         |
-| ---------------- | ----------- | ---------------------------------------------------------------- |
-| **Agents**       | 🌐 Global   | `%APPDATA%\Code\User\prompts\` — available across all workspaces |
-| **Skills**       | 🌐 Global   | `~/.copilot/skills/` — loaded by Copilot coding agent & CLI      |
-| **Instructions** | 📁 Per-repo | `.github/instructions/`                                          |
-| **Hooks**        | 📁 Per-repo | `.github/hooks/<name>/`                                          |
-| **Workflows**    | 📁 Per-repo | `.github/workflows/`                                             |
-| **Agents**       | 📁 Per-repo | `.github/agents/`                                                |
+| Resource         | Location                |
+| ---------------- | ----------------------- |
+| **Agents**       | `.github/agents/`       |
+| **Instructions** | `.github/instructions/` |
+| **Hooks**        | `.github/hooks/<name>/` |
+| **Workflows**    | `.github/workflows/`    |
+| **Skills**       | `.github/skills/`       |
 
 ## 📋 Prerequisites
 
@@ -38,10 +36,10 @@ cd vscode-copilot-sync
 ### 2. Run the Configurator
 
 ```powershell
-# Sync from GitHub, publish globally, and optionally configure your current repo
+# Sync from GitHub and optionally configure your current repo
 .\configure.ps1
 
-# Sync + publish only (no repo setup)
+# Sync only (no repo setup)
 .\configure.ps1 -SkipInit
 
 # Preview everything without writing any files
@@ -57,7 +55,7 @@ cd C:\Projects\my-app
 .\configure.ps1
 
 # Or target a repo without cd-ing first
-.\configure.ps1 -SkipSync -SkipPublish -RepoPath "C:\Projects\my-app"
+.\configure.ps1 -SkipSync -RepoPath "C:\Projects\my-app"
 
 # Or call the script directly
 .\scripts\init-repo.ps1
@@ -102,16 +100,15 @@ Locally modified files are flagged with `[~]` before removal so you don't accide
 
 ### `configure.ps1` — Main entry point
 
-Chains sync → publish → repo init in one command.
+Chains sync → repo init in one command.
 
 ```powershell
-.\configure.ps1                                        # Full run
-.\configure.ps1 -SkipInit                             # Sync + publish only
-.\configure.ps1 -SkipSync -SkipInit                   # Re-publish only
-.\configure.ps1 -SkipSync -SkipPublish                # Repo init only
-.\configure.ps1 -SkipSync -SkipPublish -Uninstall     # Remove resources
-.\configure.ps1 -RepoPath "C:\Projects\my-app"        # Target specific repo
-.\configure.ps1 -DryRun                               # Preview all changes
+.\configure.ps1                                    # Full run
+.\configure.ps1 -SkipInit                         # Sync only
+.\configure.ps1 -SkipSync                         # Repo init only
+.\configure.ps1 -SkipSync -Uninstall              # Remove resources
+.\configure.ps1 -RepoPath "C:\Projects\my-app"   # Target specific repo
+.\configure.ps1 -DryRun                           # Preview all changes
 ```
 
 ---
@@ -130,19 +127,6 @@ Clones (first run) or pulls (subsequent runs) `github/awesome-copilot` as a spar
 .\scripts\sync-awesome-copilot.ps1 -Plan                    # Dry run
 .\scripts\sync-awesome-copilot.ps1 -Categories "agents,instructions"
 .\scripts\sync-awesome-copilot.ps1 -GitTool git             # Force git
-```
-
----
-
-### `scripts/publish-global.ps1` — Publish globally
-
-Publishes agents to VS Code's user prompts folder and skills to `~/.copilot/skills/`.
-
-```powershell
-.\scripts\publish-global.ps1                                # Publish all
-.\scripts\publish-global.ps1 -DryRun                       # Preview
-.\scripts\publish-global.ps1 -SkipAgents                   # Skills only
-.\scripts\publish-global.ps1 -AgentsTarget "$env:APPDATA\Code\User\profiles\Work\prompts"
 ```
 
 ---
@@ -205,12 +189,6 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ### Sync fails with merge conflict
 
 The script auto-recovers (`git reset --hard origin/HEAD`). If it persists, delete `~/.awesome-copilot` and re-run — it will re-clone fresh.
-
-### Files not appearing in VS Code
-
-1. Restart VS Code
-2. Check your active profile: `Ctrl+Shift+P` → "Preferences: Show Profiles"
-3. Verify: `Get-ChildItem "$env:APPDATA\Code\User\prompts\"`
 
 ## 📊 Logs
 

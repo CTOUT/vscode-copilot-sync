@@ -5,31 +5,26 @@ Main entry point for all Copilot resource management operations.
 Chains the scripts in the correct order:
 
   1. sync-awesome-copilot.ps1   -- fetch latest from github/awesome-copilot
-  2. publish-global.ps1         -- publish agents + skills globally
-  3. init-repo.ps1              -- (prompted) per-repo .github/ setup
+  2. init-repo.ps1              -- (prompted) per-repo .github/ setup
 
 Usage:
-  # Full interactive run: sync + publish + prompt for init-repo
+  # Full interactive run: sync + prompt for init-repo
   .\configure.ps1
 
-  # Sync + publish only (skip init-repo prompt)
+  # Sync only (skip repo setup)
   .\configure.ps1 -SkipInit
-
-  # Re-publish only (cache already up to date)
-  .\configure.ps1 -SkipSync -SkipInit
 
   # Preview without writing any files
   .\configure.ps1 -DryRun
 
   # Init a specific repo (not the current working directory)
-  .\configure.ps1 -SkipSync -SkipPublish -RepoPath "C:\Projects\my-app"
+  .\configure.ps1 -SkipSync -RepoPath "C:\Projects\my-app"
 
   # Remove installed .github/ resources from the current repo
   .\configure.ps1 -Uninstall
 #>
 [CmdletBinding()] param(
     [switch]$SkipSync,
-    [switch]$SkipPublish,
     [switch]$SkipInit,
     [switch]$Uninstall,     # Remove installed .github/ resources via init-repo -Uninstall
     [string]$RepoPath = (Get-Location).Path,
@@ -63,7 +58,7 @@ if (Test-Path $manifest) {
     Log "No local cache found — sync will download everything fresh." 'WARN'
 }
 
-if ($Uninstall) { $SkipSync = $true; $SkipPublish = $true }
+if ($Uninstall) { $SkipSync = $true }
 
 #endregion # Initialisation
 
@@ -78,17 +73,7 @@ if (-not $SkipSync) {
 
 #endregion # Step 1
 
-#region Step 2 — Publish globally
-if (-not $SkipPublish) {
-    Step "Publish agents + skills globally"
-    $publishArgs = @{}
-    if ($DryRun) { $publishArgs['DryRun'] = $true }
-    & (Join-Path $ScriptDir 'publish-global.ps1') @publishArgs
-}
-
-#endregion # Step 2
-
-#region Step 3 — Init repo
+#region Step 2 — Init repo
 if (-not $SkipInit) {
     # If a subscriptions manifest exists for the current repo, offer to check for updates first
     $subscriptionsFile = Join-Path $RepoPath '.github\.copilot-subscriptions.json'
@@ -116,7 +101,7 @@ if (-not $SkipInit) {
     }
 }
 
-#endregion # Step 3
+#endregion # Step 2
 
 Write-Host ""
 Log "Done." 'SUCCESS'
