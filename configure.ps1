@@ -11,6 +11,9 @@ Usage:
   # Full interactive run: sync + prompt for init-repo
   .\configure.ps1
 
+  # Sync + go straight to install pickers (skip the Y/N prompt)
+  .\configure.ps1 -Install
+
   # Sync only (skip repo setup)
   .\configure.ps1 -SkipInit
 
@@ -26,6 +29,7 @@ Usage:
 [CmdletBinding()] param(
     [switch]$SkipSync,
     [switch]$SkipInit,
+    [switch]$Install,       # Skip the Y/N prompt and go straight to init-repo pickers
     [switch]$Uninstall,     # Remove installed .github/ resources via init-repo -Uninstall
     [string]$RepoPath = (Get-Location).Path,
     [switch]$DryRun
@@ -59,6 +63,7 @@ if (Test-Path $manifest) {
 }
 
 if ($Uninstall) { $SkipSync = $true }
+if ($Install)   { $SkipInit = $false }  # ensure -Install always runs init-repo
 
 #endregion # Initialisation
 
@@ -92,16 +97,21 @@ if (-not $SkipInit) {
     Step "Init repo"
     if ($Uninstall -and $subCount -eq 0) {
         Log "Nothing to uninstall — no subscriptions recorded for this repo."
+    } elseif ($Install -or $Uninstall) {
+        # -Install or -Uninstall: skip the Y/N prompt, run directly
+        $initArgs = @{}
+        if ($DryRun)    { $initArgs['DryRun']    = $true }
+        if ($RepoPath)  { $initArgs['RepoPath']  = $RepoPath }
+        if ($Uninstall) { $initArgs['Uninstall'] = $true }
+        & (Join-Path $ScriptDir 'init-repo.ps1') @initArgs
     } else {
-        $initPrompt = if ($Uninstall) { "Remove agents/instructions/hooks/workflows/skills from .github/?" } else { "Add agents/instructions/hooks/workflows/skills to .github/ in the current repo?" }
-        Write-Host "  $initPrompt" -ForegroundColor Yellow
+        Write-Host "  Add agents/instructions/hooks/workflows/skills to .github/ in the current repo?" -ForegroundColor Yellow
         Write-Host "  [Y] Yes   [N] No (default): " -NoNewline -ForegroundColor Yellow
         $answer = (Read-Host).Trim()
         if ($answer -match '^[Yy]') {
             $initArgs = @{}
-            if ($DryRun)     { $initArgs['DryRun']    = $true }
-            if ($RepoPath)   { $initArgs['RepoPath']  = $RepoPath }
-            if ($Uninstall)  { $initArgs['Uninstall'] = $true }
+            if ($DryRun)   { $initArgs['DryRun']   = $true }
+            if ($RepoPath) { $initArgs['RepoPath'] = $RepoPath }
             & (Join-Path $ScriptDir 'init-repo.ps1') @initArgs
         } else {
             Log "init-repo skipped."

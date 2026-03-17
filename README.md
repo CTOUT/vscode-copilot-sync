@@ -39,6 +39,9 @@ cd vscode-copilot-sync
 # Sync from GitHub and optionally configure your current repo
 .\configure.ps1
 
+# Sync + go straight to install pickers (no Y/N prompt)
+.\configure.ps1 -Install
+
 # Sync only (no repo setup)
 .\configure.ps1 -SkipInit
 
@@ -105,6 +108,7 @@ Chains sync → repo init in one command.
 
 ```powershell
 .\configure.ps1                                    # Full run
+.\configure.ps1 -Install                          # Sync + go straight to pickers
 .\configure.ps1 -SkipInit                         # Sync only
 .\configure.ps1 -SkipSync                         # Repo init only
 .\configure.ps1 -SkipSync -Uninstall              # Remove resources
