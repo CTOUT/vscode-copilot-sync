@@ -291,7 +291,7 @@ function Select-Items {
         $score = Measure-ItemRelevance -ItemName $_.Name -FilePath $_.FullPath -Tags $Tags
         $_ | Add-Member -NotePropertyName 'IsRecommended' -NotePropertyValue ($score -ge 2) -PassThru -Force |
              Add-Member -NotePropertyName 'Score'         -NotePropertyValue $score          -PassThru -Force
-    } | Sort-Object @{ E={ if ($_.IsRecommended) { 0 } else { 1 } } }, @{ E={ if ($_.AlreadyInstalled) { 0 } else { 1 } } }, @{ E={ -$_.Score } }, Name
+    } | Sort-Object @{ E={ if ($_.IsRecommended) { 0 } else { 1 } } }, @{ E={ if ($_.AlreadyInstalled) { 0 } else { 1 } } }, Name
 
     Write-Host ""
     Write-Host "  === $Category ===" -ForegroundColor Yellow
