@@ -75,38 +75,18 @@ function Log($m, [string]$level = 'INFO') {
 }
 
 function Show-OGV {
-    # Wrapper around Out-GridView that activates the window via WScript.Shell.AppActivate,
-    # which bypasses UIPI restrictions that block SetForegroundWindow from runspaces.
-    # SearchKey is a plain ASCII fragment of the title used for window matching — avoids
-    # unicode chars (★ etc.) that may cause AppActivate to fail the lookup.
+    # Wrapper around Out-GridView that flashes the taskbar button and prints
+    # a console hint — the most reliable way to alert the user since Windows
+    # prevents focus-stealing from background processes by design.
     param([Parameter(ValueFromPipeline)][object[]]$InputObject, [string]$Title, [string]$SearchKey, [switch]$PassThru)
     begin   { $all = [System.Collections.Generic.List[object]]::new() }
     process { foreach ($i in $InputObject) { $all.Add($i) } }
     end {
-        $key = if ($SearchKey) { $SearchKey } else { ($Title -replace '[^\x20-\x7E]','').Trim() }
-        $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
-        $rs.Open()
-        $ps = [System.Management.Automation.PowerShell]::Create()
-        $ps.Runspace = $rs
-        $null = $ps.AddScript({
-            param($k)
-            $wsh = New-Object -ComObject WScript.Shell
-            for ($i = 0; $i -lt 50; $i++) {   # poll up to 5 s
-                Start-Sleep -Milliseconds 100
-                if ($wsh.AppActivate($k)) {
-                    Start-Sleep -Milliseconds 150   # brief pause then re-activate to counter focus-steal
-                    $wsh.AppActivate($k)
-                    break
-                }
-            }
-        }).AddArgument($key)
-        $handle = $ps.BeginInvoke()
+        Write-Host "  ► Selection window opening — check your taskbar if it appears behind other apps." -ForegroundColor Yellow
 
         if ($PassThru) { $result = $all | Out-GridView -Title $Title -PassThru }
         else           { $all | Out-GridView -Title $Title }
 
-        $null = $ps.EndInvoke($handle)
-        $ps.Dispose(); $rs.Close()
         if ($PassThru) { return $result }
     }
 }
