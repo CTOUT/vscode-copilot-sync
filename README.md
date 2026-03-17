@@ -10,14 +10,14 @@ A collection of PowerShell scripts to sync, publish, and manage [GitHub Copilot]
 
 ### What goes where
 
-| Resource         | Scope       | Location |
-| ---------------- | ----------- | -------- |
+| Resource         | Scope       | Location                                                         |
+| ---------------- | ----------- | ---------------------------------------------------------------- |
 | **Agents**       | 🌐 Global   | `%APPDATA%\Code\User\prompts\` — available across all workspaces |
-| **Skills**       | 🌐 Global   | `~/.copilot/skills/` — loaded by Copilot coding agent & CLI |
-| **Instructions** | 📁 Per-repo | `.github/instructions/` |
-| **Hooks**        | 📁 Per-repo | `.github/hooks/<name>/` |
-| **Workflows**    | 📁 Per-repo | `.github/workflows/` |
-| **Agents**       | 📁 Per-repo | `.github/agents/` |
+| **Skills**       | 🌐 Global   | `~/.copilot/skills/` — loaded by Copilot coding agent & CLI      |
+| **Instructions** | 📁 Per-repo | `.github/instructions/`                                          |
+| **Hooks**        | 📁 Per-repo | `.github/hooks/<name>/`                                          |
+| **Workflows**    | 📁 Per-repo | `.github/workflows/`                                             |
+| **Agents**       | 📁 Per-repo | `.github/agents/`                                                |
 
 ## 📋 Prerequisites
 
@@ -66,10 +66,10 @@ cd C:\Projects\my-app
 
 The picker auto-detects your language/framework and marks relevant items with ★. Items already installed show their status:
 
-| Symbol | Meaning |
-| ------ | ------- |
-| ★      | Recommended for this repo |
-| `[*]`  | Already installed |
+| Symbol | Meaning                        |
+| ------ | ------------------------------ |
+| ★      | Recommended for this repo      |
+| `[*]`  | Already installed              |
 | `[↑]`  | Update available from upstream |
 | `[~]`  | Locally modified since install |
 
@@ -236,4 +236,3 @@ MIT — see [LICENSE](LICENSE)
 ---
 
 **Made with ❤️ for the VS Code + Copilot community**
-

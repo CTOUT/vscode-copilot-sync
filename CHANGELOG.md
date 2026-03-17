@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.2] - 2026-02-27
 
 ### Changed
+
 - `configure.ps1`: use `$PSScriptRoot` to locate the `scripts/` folder (replaces `$MyInvocation.MyCommand.Path` which behaves differently when dot-sourced)
 - `scripts/sync-awesome-copilot.ps1`: replace manual SHA256 with built-in `Get-FileHash` — cleaner and avoids loading entire file into memory
 - `scripts/publish-global.ps1`: emit a `WARN` log when VS Code `settings.json` is not found (was a silent no-op); user is directed to open VS Code once to generate the file
@@ -15,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.1] - 2026-02-27
 
 ### Fixed
+
 - `configure.ps1`: `-InstallTask` / `-UninstallTask` now automatically skip the `init-repo` prompt (validation moved before Step 1 so the flag takes effect)
 - `configure.ps1`: prompts to overwrite when the scheduled task already exists, instead of throwing a hard error
 - `scripts/install-scheduled-task.ps1`: added `-WorkingDirectory` to both scheduled task actions (was defaulting to `C:\Windows\System32`, causing a permissions error creating the `logs/` directory)
@@ -27,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2026-02-27
 
 ### Changed
+
 - `scripts/sync-awesome-copilot.ps1`: **Rewritten** — replaced GitHub API + per-file HTTP download approach with `git sparse-checkout`. First run clones `github/awesome-copilot` shallowly with only the requested categories; subsequent runs run `git pull` for near-instant delta updates. Dramatically faster (single bulk transfer vs 700+ individual HTTP requests) and removes GitHub API rate-limit concerns entirely.
   - Prefers `gh` (GitHub CLI) for automatic auth; falls back to `git`
   - New `-GitTool auto|gh|git` parameter to override tool selection
@@ -35,14 +38,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `manifest.json` still written (from local file scan) for backward compatibility with `publish-global.ps1` and `configure.ps1`
 
 ### Added
+
 - `README.md`: document `gh`/`git` requirement; update sync section to reflect git-based approach
 
 ## [1.1.2] - 2026-02-27
 
 ### Added
+
 - `configure.ps1` — interactive orchestrator that chains sync → publish-global → init-repo; each step independently skippable via `-SkipSync`, `-SkipPublish`, `-SkipInit`; `-DryRun` passes through to all child scripts; shows last sync timestamp from cache manifest before running
 
 ### Added
+
 - `init-repo.ps1`: added Agents as a fourth interactive category (installs to `.github/agents/`)
 - `init-repo.ps1`: `Detect-RepoStack` — auto-detects language/framework from file signals and marks relevant items with ★ in the picker
 - `init-repo.ps1`: `Prompt-RepoIntent` — interactive fallback for new/empty repos; asks language, project type, and concerns
@@ -51,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.github/copilot-instructions.md`: Copilot instructions for this repository covering script workflow, conventions, and contributing guidelines
 
 ### Fixed
+
 - `normalize-copilot-folders.ps1`: `Split-Path -LeafParent` → `Split-Path -Parent` (`-LeafParent` is not a valid parameter and would throw at runtime)
 - `install-scheduled-task.ps1`: removed `-Quiet` from `publish-global.ps1` invocation (`publish-global.ps1` has no `-Quiet` parameter; would throw on scheduled runs)
 - `init-repo.ps1`: `$Items.IndexOf($_)` → `[Array]::IndexOf($Items, $_)` (`System.Object[]` has no instance `IndexOf` method; affected console-menu fallback path)
@@ -59,25 +66,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `publish-global.ps1`: corrected agents target path to `%APPDATA%\Code\User\prompts\` (was incorrectly set to `agents\`)
 
 ### Changed
+
 - `publish-global.ps1`: updated inline comment from "CCA" to "VS Code Agent mode / Copilot CLI"
 - `README.md`: corrected all `-Interval` references to `-Every`; fixed `-ProfileName` → `-ProfileRoot`/`-AllProfiles`; updated agents path to `%APPDATA%\Code\User\prompts\`; updated `init-repo.ps1` section to reflect agents category and smart detection; fixed custom `-AgentsTarget` example path
 - `.github/copilot-instructions.md`: corrected agents path from `%APPDATA%\Code\User\agents\` to `%APPDATA%\Code\User\prompts\`
 
-
-
 ### Fixed
+
 - `sync-awesome-copilot.ps1`: changed `$ErrorActionPreference` from `Inquire` to `Stop` — `Inquire` caused the script to hang waiting for interactive input when run as a scheduled task
 
 ### Changed
+
 - `init-repo.ps1`: removed skills from per-repo initialisation; skills are globally available via `publish-global.ps1` (`~/.copilot/skills/`) and users should reference the source directly at [github/awesome-copilot](https://github.com/github/awesome-copilot) rather than committing point-in-time copies to repos
 
 ## [1.1.0] - 2026-02-26
 
 ### Added
+
 - `publish-global.ps1` — publishes agents to the VS Code user agents folder (via junction so sync updates are reflected immediately) and skills to `~/.copilot/skills/`; supports `-DryRun`, `-SkipAgents`, `-SkipSkills`, `-AgentsTarget`, `-SkillsTarget`
 - `init-repo.ps1` — interactive script to initialise a repo with per-repo resources (instructions, hooks, workflows); uses Out-GridView on Windows with a numbered console-menu fallback; supports `-RepoPath`, `-DryRun`, `-SkipInstructions`, `-SkipHooks`, `-SkipWorkflows`
 
 ### Changed
+
 - Updated default sync categories to match current awesome-copilot repository structure:
   - **Added**: `agents`, `workflows`, `hooks`, `skills`
   - **Removed**: `chatmodes`, `prompts` (no longer exist in awesome-copilot)
@@ -88,8 +98,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `install-scheduled-task.ps1`: default categories now `agents,instructions,workflows,hooks,skills`; `-IncludeCollections` replaced by `-IncludePlugins`; `-SkipCombine` replaced by `-SkipPublishGlobal`; scheduled actions now run `publish-global.ps1` after sync
 
 ### Removed
-- `normalize-copilot-folders.ps1` — removed (legacy, superseded by junction-based agent publishing and `init-repo.ps1`)
 
+- `normalize-copilot-folders.ps1` — removed (legacy, superseded by junction-based agent publishing and `init-repo.ps1`)
 
 - `plugins/` and `cookbook/` are available but opt-in via `-IncludePlugins` due to their size
 - Hooks are synced as complete packages (README.md + hooks.json + .sh scripts) preserving their directory structure
@@ -98,6 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2025-10-20
 
 ### Added
+
 - Initial release of VS Code Copilot Resource Sync Scripts
 - `sync-awesome-copilot.ps1` - Sync resources from GitHub awesome-copilot repository
 - `combine-and-publish-prompts.ps1` - Combine and publish resources to VS Code
@@ -113,6 +124,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for multiple VS Code profiles
 
 ### Features
+
 - Portable paths using environment variables ($HOME, $env:APPDATA)
 - Preserves user-created custom files in combined directory
 - Incremental updates (only downloads changed files)
@@ -121,6 +133,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Detailed sync logs with timestamps
 
 ### Security
+
 - No hardcoded credentials or personal information
 - Optional environment variable for GitHub token
 - All sensitive data handled via environment variables
@@ -130,6 +143,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Future Plans
 
 ### Planned Features
+
 - [ ] Configuration file support (YAML/JSON)
 - [ ] Backup and restore functionality
 - [ ] Conflict resolution UI for duplicate resources
@@ -139,12 +153,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [ ] Cross-platform support (macOS, Linux)
 
 ### Known Issues
+
 - Junction creation requires appropriate permissions on some systems
 - Scheduled task runs under user context (requires user to be logged in)
 
 ---
 
 **Note:** Version numbers follow [Semantic Versioning](https://semver.org/):
+
 - MAJOR version for incompatible API changes
 - MINOR version for new functionality in a backwards compatible manner
 - PATCH version for backwards compatible bug fixes
