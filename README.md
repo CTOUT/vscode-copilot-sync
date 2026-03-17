@@ -70,6 +70,7 @@ The picker auto-detects your language/framework and marks relevant items with â˜
 | `[*]`  | Already installed              |
 | `[â†‘]`  | Update available from upstream |
 | `[~]`  | Locally modified since install |
+| `[!]`  | Requires additional setup (MCP server, API key, etc.) |
 
 ### 4. Remove Installed Resources
 

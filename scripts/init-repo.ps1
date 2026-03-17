@@ -295,7 +295,7 @@ function Select-Items {
 
     Write-Host ""
     Write-Host "  === $Category ===" -ForegroundColor Yellow
-    Write-Host "  [*]=Installed  [↑]=Update available  [~]=Locally modified  ★=Recommended" -ForegroundColor DarkGray
+    Write-Host "  [*]=Installed  [↑]=Update available  [~]=Locally modified  ★=Recommended  [!]=Setup required" -ForegroundColor DarkGray
 
     # Try Out-GridView (Windows GUI - filterable, multi-select)
     $ogvAvailable = $false
@@ -310,12 +310,13 @@ function Select-Items {
                 if ($_.AlreadyInstalled)  { $s += '[*]' }
                 if ($_.UpdateAvailable)   { $s += '[↑]' }
                 if ($_.LocallyModified)   { $s += '[~]' }
+                if ($_.RequiresSetup)     { $s += '[!]' }
                 $s
             }},
             @{ N='Name';        E={ $_.Name } },
             @{ N='Description'; E={ $_.Description } })
 
-        $picked = $display | Out-GridView -Title "Select $Category   ★=Recommended (config-free)  [*]=Installed  [↑]=Update  [~]=Modified" -PassThru
+        $picked = $display | Out-GridView -Title "Select $Category   ★=Recommended (config-free)  [*]=Installed  [↑]=Update  [~]=Modified  [!]=Setup required" -PassThru
         if (-not $picked) { return @() }
         $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
         return @($Items | Where-Object { $pickedNames -contains $_.Name })
@@ -329,8 +330,8 @@ function Select-Items {
         if ($item.AlreadyInstalled) { $status += '[*]' }
         if ($item.UpdateAvailable)  { $status += '[↑]' }
         if ($item.LocallyModified)  { $status += '[~]' }
-        $rec  = if ($item.IsRecommended) { '[★]' } else { '   ' }
-        $color = if ($item.UpdateAvailable) { 'Cyan' } elseif ($item.AlreadyInstalled) { 'DarkCyan' } elseif ($item.IsRecommended) { 'Yellow' } else { 'White' }
+        $rec  = if ($item.IsRecommended) { '[★]' } elseif ($item.RequiresSetup) { '[!]' } else { '   ' }
+        $color = if ($item.UpdateAvailable) { 'Cyan' } elseif ($item.AlreadyInstalled) { 'DarkCyan' } elseif ($item.IsRecommended) { 'Yellow' } elseif ($item.RequiresSetup) { 'DarkYellow' } else { 'White' }
         Write-Host ("  {0,3}. {1} {2,-6} {3}" -f ($i+1), $rec, $status, $item.Name) -ForegroundColor $color
         if ($item.Description) {
             Write-Host ("             {0}" -f $item.Description) -ForegroundColor DarkGray
