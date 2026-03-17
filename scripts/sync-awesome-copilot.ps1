@@ -153,10 +153,18 @@ if ($IsFirstRun) {
     $pullOutput = & git -C $Dest pull 2>&1
     $pullOutput | ForEach-Object { Write-Log $_ }
     if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
-        if (($pullOutput -join "`n") -match 'unrelated histories') {
+        $pullText = $pullOutput -join "`n"
+        if ($pullText -match 'unrelated histories') {
             Write-Log "Unrelated histories detected — fetching and resetting to remote HEAD..." 'WARN'
             & git -C $Dest fetch origin 2>&1 | ForEach-Object { Write-Log $_ }
             & git -C $Dest reset --hard origin/HEAD 2>&1 | ForEach-Object { Write-Log $_ }
+            if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Write-Log "Reset failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
+        } elseif ($pullText -match 'unmerged files|unresolved conflict|merge conflict') {
+            # Local cache has conflicts — safe to discard since this directory is read-only managed by this script
+            Write-Log "Unmerged files detected in local cache — resetting to remote HEAD..." 'WARN'
+            & git -C $Dest fetch origin 2>&1 | ForEach-Object { Write-Log $_ }
+            & git -C $Dest reset --hard origin/HEAD 2>&1 | ForEach-Object { Write-Log $_ }
+            & git -C $Dest clean -fd 2>&1 | ForEach-Object { Write-Log $_ }
             if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Write-Log "Reset failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
         } else {
             Write-Log "Pull failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE

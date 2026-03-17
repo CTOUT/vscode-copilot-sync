@@ -30,6 +30,9 @@ Usage:
 
   # Preview without writing any files
   .\configure.ps1 -DryRun
+
+  # Init a specific repo (not the current working directory)
+  .\configure.ps1 -SkipSync -SkipPublish -RepoPath "C:\Projects\my-app"
 #>
 [CmdletBinding()] param(
     [switch]$SkipSync,
@@ -38,6 +41,7 @@ Usage:
     [switch]$InstallTask,
     [switch]$UninstallTask,
     [string]$Every = '4h',      # Interval for -InstallTask (e.g. 4h, 30m)
+    [string]$RepoPath = (Get-Location).Path,
     [switch]$DryRun
 )
 
@@ -100,7 +104,7 @@ if (-not $SkipPublish) {
 #region Step 3 — Init repo
 if (-not $SkipInit) {
     # If a subscriptions manifest exists for the current repo, offer to check for updates first
-    $subscriptionsFile = Join-Path (Get-Location).Path '.github\.copilot-subscriptions.json'
+    $subscriptionsFile = Join-Path $RepoPath '.github\.copilot-subscriptions.json'
     if (Test-Path $subscriptionsFile) {
         Step "Check for updates to subscribed repo resources"
         Write-Host "  Subscriptions found. Check for upstream updates to .github/ resources?" -ForegroundColor Yellow
@@ -109,6 +113,7 @@ if (-not $SkipInit) {
         if ($updateAnswer -match '^[Yy]') {
             $updateArgs = @{}
             if ($DryRun) { $updateArgs['DryRun'] = $true }
+            if ($RepoPath) { $updateArgs['RepoPath'] = $RepoPath }
             & (Join-Path $ScriptDir 'update-repo.ps1') @updateArgs
         } else {
             Log "Update check skipped."
@@ -122,6 +127,7 @@ if (-not $SkipInit) {
     if ($answer -match '^[Yy]') {
         $initArgs = @{}
         if ($DryRun) { $initArgs['DryRun'] = $true }
+        if ($RepoPath) { $initArgs['RepoPath'] = $RepoPath }
         & (Join-Path $ScriptDir 'init-repo.ps1') @initArgs
     } else {
         Log "init-repo skipped."

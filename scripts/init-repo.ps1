@@ -92,32 +92,30 @@ function Detect-RepoStack {
     $hasPs1    = $exts -contains '.ps1'
     $hasJs     = $exts -contains '.js' -or $exts -contains '.jsx' -or ($names -contains 'package.json')
 
-    if ($hasDotnet)            { $recs.Add('csharp'); $recs.Add('dotnet-architecture-good-practices') }
+    # Language/platform keywords — used for content-based scoring across all categories
+    if ($hasDotnet)            { $recs.Add('csharp'); $recs.Add('dotnet') }
     if ($hasPy)                { $recs.Add('python') }
-    if ($hasTs)                { $recs.Add('typescript-5-es2022') }
+    if ($hasTs)                { $recs.Add('typescript') }
+    if ($hasJs)                { $recs.Add('javascript') }
     if ($hasGo)                { $recs.Add('go') }
     if ($hasRs)                { $recs.Add('rust') }
-    if ($hasJava -or $hasKt)   { $recs.Add('java') }
+    if ($hasJava)              { $recs.Add('java') }
+    if ($hasKt)                { $recs.Add('kotlin') }
     if ($hasTf)                { $recs.Add('terraform') }
-    if ($hasBicep)             { $recs.Add('bicep-code-best-practices') }
+    if ($hasBicep)             { $recs.Add('bicep'); $recs.Add('azure') }
     if ($hasPs1)               { $recs.Add('powershell') }
 
-    # Docker
-    if (($names -contains 'Dockerfile') -or ($names | Where-Object { $_ -match '^docker-compose\.yml$' })) {
-        $recs.Add('containerization-docker-best-practices')
-    }
+    # Docker / containers
+    $hasDocker = ($names -contains 'Dockerfile') -or ($names | Where-Object { $_ -match '^docker-compose\.yml$' })
+    if ($hasDocker)            { $recs.Add('docker'); $recs.Add('container') }
 
-    # GitHub Actions workflows
+    # GitHub Actions
     $ghWorkflows = $files | Where-Object { $_.FullName -match '\\\.github\\workflows\\' -and $_.Extension -eq '.yml' }
-    if ($ghWorkflows) { $recs.Add('github-actions-ci-cd-best-practices') }
+    if ($ghWorkflows)          { $recs.Add('github-actions') }
 
     # Playwright
     $hasPlaywright = $files | Where-Object { $_.Name -match '^playwright\.config\.' }
-    if ($hasPlaywright) {
-        if ($hasDotnet)   { $recs.Add('playwright-dotnet') }
-        elseif ($hasPy)   { $recs.Add('playwright-python') }
-        else              { $recs.Add('playwright-typescript') }
-    }
+    if ($hasPlaywright)        { $recs.Add('playwright') }
 
     # package.json framework detection
     $pkgJson = $files | Where-Object { $_.Name -eq 'package.json' } | Select-Object -First 1
@@ -127,32 +125,18 @@ function Detect-RepoStack {
             $allDeps = @()
             if ($pkg.dependencies)    { $allDeps += $pkg.dependencies.PSObject.Properties.Name }
             if ($pkg.devDependencies) { $allDeps += $pkg.devDependencies.PSObject.Properties.Name }
-            if ($allDeps -contains 'react')    { $recs.Add('reactjs') }
-            if ($allDeps -contains 'next')     { $recs.Add('nextjs') }
-            if ($allDeps | Where-Object { $_ -match '^@angular/' }) { $recs.Add('angular') }
-            if ($allDeps -contains 'vue')      { $recs.Add('vuejs3') }
-            if ($allDeps -contains 'svelte')   { $recs.Add('svelte') }
-            if ($allDeps | Where-Object { $_ -match '^@nestjs/' }) { $recs.Add('nestjs') }
+            if ($allDeps -contains 'react')                          { $recs.Add('react') }
+            if ($allDeps -contains 'next')                           { $recs.Add('nextjs') }
+            if ($allDeps | Where-Object { $_ -match '^@angular/' })  { $recs.Add('angular') }
+            if ($allDeps -contains 'vue')                            { $recs.Add('vue') }
+            if ($allDeps -contains 'svelte')                         { $recs.Add('svelte') }
+            if ($allDeps | Where-Object { $_ -match '^@nestjs/' })   { $recs.Add('nestjs') }
         } catch {}
     }
 
-    # Agent recommendations (name without .agent.md extension)
-    if ($hasPs1)               { $recs.Add('devops-expert'); $recs.Add('github-actions-expert') }
-    if ($hasDotnet)            { $recs.Add('CSharpExpert'); $recs.Add('expert-dotnet-software-engineer') }
-    if ($hasPy)                { $recs.Add('python-mcp-expert') }
-    if ($hasTs -or $hasJs)     { $recs.Add('typescript-mcp-expert') }
-    if ($hasGo)                { $recs.Add('go-mcp-expert') }
-    if ($hasRs)                { $recs.Add('rust-mcp-expert') }
-    if ($hasJava -or $hasKt)   { $recs.Add('java-mcp-expert') }
-    if (($names -contains 'Dockerfile') -or ($names | Where-Object { $_ -match '^docker-compose\.yml$' })) { $recs.Add('platform-sre-kubernetes') }
-    if ($ghWorkflows)          { $recs.Add('github-actions-expert') }
-    if ($hasPlaywright)        { $recs.Add('playwright-tester') }
-    # Always recommend for all repos
-    $recs.Add('se-security-reviewer')
-    $recs.Add('se-technical-writer')
-
-    $recs.Add('security-and-owasp')
-    $recs.Add('code-review-generic')
+    # Always recommend security and code review for every repo
+    $recs.Add('security')
+    $recs.Add('code-review')
 
     return @($recs | Sort-Object -Unique)
 }
@@ -177,14 +161,14 @@ function Prompt-RepoIntent {
     Write-Host "  Enter number: " -NoNewline -ForegroundColor Yellow
     $q1 = (Read-Host).Trim()
     switch ($q1) {
-        '1' { $recs.Add('csharp'); $recs.Add('dotnet-architecture-good-practices'); $recs.Add('CSharpExpert'); $recs.Add('expert-dotnet-software-engineer') }
-        '2' { $recs.Add('python'); $recs.Add('python-mcp-expert') }
-        '3' { $recs.Add('typescript-5-es2022'); $recs.Add('typescript-mcp-expert') }
-        '4' { $recs.Add('go'); $recs.Add('go-mcp-expert') }
-        '5' { $recs.Add('java'); $recs.Add('java-mcp-expert') }
-        '6' { $recs.Add('rust'); $recs.Add('rust-mcp-expert') }
-        '7' { $recs.Add('powershell'); $recs.Add('devops-expert'); $recs.Add('github-actions-expert') }
-        '8' { $recs.Add('terraform'); $recs.Add('bicep-code-best-practices') }
+        '1' { $recs.Add('csharp'); $recs.Add('dotnet') }
+        '2' { $recs.Add('python') }
+        '3' { $recs.Add('typescript'); $recs.Add('javascript') }
+        '4' { $recs.Add('go') }
+        '5' { $recs.Add('java'); $recs.Add('kotlin') }
+        '6' { $recs.Add('rust') }
+        '7' { $recs.Add('powershell') }
+        '8' { $recs.Add('terraform'); $recs.Add('bicep'); $recs.Add('azure') }
     }
 
     Write-Host ""
@@ -197,7 +181,15 @@ function Prompt-RepoIntent {
     Write-Host "    6. Infrastructure / DevOps"
     Write-Host "    7. Documentation / Content"
     Write-Host "  Enter number: " -NoNewline -ForegroundColor Yellow
-    $null = Read-Host  # no mapping yet, reserved for future extensibility
+    $q2 = (Read-Host).Trim()
+    switch ($q2) {
+        '1' { $recs.Add('api'); $recs.Add('rest') }
+        '2' { $recs.Add('frontend') }
+        '3' { $recs.Add('cli') }
+        '5' { $recs.Add('data') }
+        '6' { $recs.Add('docker'); $recs.Add('terraform'); $recs.Add('github-actions') }
+        '7' { $recs.Add('markdown'); $recs.Add('documentation') }
+    }
 
     Write-Host ""
     Write-Host "  Q3: Any specific concerns? (comma-separated, e.g. 1,3)" -ForegroundColor Yellow
@@ -213,19 +205,18 @@ function Prompt-RepoIntent {
     if ($q3 -and $q3 -ne '7') {
         foreach ($part in $q3.Split(',')) {
             switch ($part.Trim()) {
-                '1' { $recs.Add('security-and-owasp') }
-                '2' { $recs.Add('a11y') }
-                '3' { $recs.Add('playwright-typescript'); $recs.Add('playwright-tester') }
-                '4' { $recs.Add('performance-optimization') }
-                '5' { $recs.Add('containerization-docker-best-practices'); $recs.Add('platform-sre-kubernetes') }
-                '6' { $recs.Add('github-actions-ci-cd-best-practices'); $recs.Add('github-actions-expert') }
+                '1' { $recs.Add('security'); $recs.Add('owasp') }
+                '2' { $recs.Add('accessibility'); $recs.Add('a11y') }
+                '3' { $recs.Add('playwright'); $recs.Add('testing') }
+                '4' { $recs.Add('performance') }
+                '5' { $recs.Add('docker'); $recs.Add('container'); $recs.Add('kubernetes') }
+                '6' { $recs.Add('github-actions') }
             }
         }
     }
 
-    $recs.Add('se-security-reviewer')
-    $recs.Add('se-technical-writer')
-    $recs.Add('code-review-generic')
+    $recs.Add('security')
+    $recs.Add('code-review')
     return @($recs | Sort-Object -Unique)
 }
 
@@ -275,7 +266,7 @@ function Select-Items {
         [string]$Category,
         [object[]]$Items,          # objects with Name, Description, AlreadyInstalled
         [string]$PreSelected = '',
-        [string[]]$Recommended = @()
+        [string[]]$Tags = @()      # tech keywords used for content-based relevance scoring
     )
 
     if ($Items.Count -eq 0) {
@@ -291,10 +282,13 @@ function Select-Items {
         return @($selected)
     }
 
-    # Attach IsRecommended and sort: recommended first, then alphabetical within groups
+    # Score each item against the detected tech keywords; recommended = score > 0.
+    # Sort: recommended (highest score first) then remaining alphabetically.
     $Items = $Items | ForEach-Object {
-        $_ | Add-Member -NotePropertyName 'IsRecommended' -NotePropertyValue ($Recommended -contains $_.Name) -PassThru -Force
-    } | Sort-Object @{ E={ if ($_.IsRecommended) { 0 } else { 1 } } }, Name
+        $score = Measure-ItemRelevance -ItemName $_.Name -FilePath $_.FullPath -Tags $Tags
+        $_ | Add-Member -NotePropertyName 'IsRecommended' -NotePropertyValue ($score -gt 0) -PassThru -Force |
+             Add-Member -NotePropertyName 'Score'         -NotePropertyValue $score          -PassThru -Force
+    } | Sort-Object @{ E={ if ($_.IsRecommended) { 0 } else { 1 } } }, @{ E={ -$_.Score } }, Name
 
     Write-Host ""
     Write-Host "  === $Category ===" -ForegroundColor Yellow
@@ -412,6 +406,52 @@ function Get-DirHash([string]$DirPath) {
     return (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash
 }
 
+function Measure-ItemRelevance {
+    <#
+    .SYNOPSIS
+    Scores an item's relevance against detected tech keywords.
+    .DESCRIPTION
+    Checks both the item's name (stronger signal, weight 2) and the first 30 lines of
+    its content or README.md (for directories) against each keyword using word-boundary
+    matching.  Returns a total score; 0 means no relevance detected.
+    #>
+    param(
+        [string]   $ItemName,
+        [string]   $FilePath,
+        [string[]] $Tags
+    )
+
+    if (-not $Tags -or $Tags.Count -eq 0) { return 0 }
+
+    $score    = 0
+    $nameLower = $ItemName.ToLower()
+
+    foreach ($tag in $Tags) {
+        $pattern = "(?i)\b$([regex]::Escape($tag.ToLower()))\b"
+        if ($nameLower -match $pattern) { $score += 2 }
+    }
+
+    # For directories, score against README.md / SKILL.md content
+    $contentFile = $FilePath
+    if ($FilePath -and (Test-Path $FilePath -PathType Container)) {
+        $readme = Join-Path $FilePath 'README.md'
+        if (-not (Test-Path $readme)) { $readme = Join-Path $FilePath 'SKILL.md' }
+        $contentFile = if (Test-Path $readme) { $readme } else { $null }
+    }
+
+    if ($contentFile -and (Test-Path $contentFile -PathType Leaf)) {
+        try {
+            $text = ((Get-Content $contentFile -TotalCount 30 -ErrorAction SilentlyContinue) -join ' ').ToLower()
+            foreach ($tag in $Tags) {
+                $pattern = "(?i)\b$([regex]::Escape($tag.ToLower()))\b"
+                if ($text -match $pattern) { $score++ }
+            }
+        } catch {}
+    }
+
+    return $score
+}
+
 function Update-Subscriptions {
     param([string]$ManifestPath, [object[]]$NewEntries)
     if (-not $NewEntries -or $NewEntries.Count -eq 0) { return }
@@ -493,7 +533,7 @@ $SubscriptionManifestPath     = Join-Path $GithubDir '.copilot-subscriptions.jso
 if (-not $SkipAgents) {
     $destDir   = Join-Path $GithubDir 'agents'
     $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'agents') $destDir '\.agent\.md$'
-    $selected  = Select-Items -Category 'Agents' -Items $catalogue -PreSelected $Agents -Recommended $script:Recommendations
+    $selected  = Select-Items -Category 'Agents' -Items $catalogue -PreSelected $Agents -Tags $script:Recommendations
 
     foreach ($item in $selected) {
         $result = Install-File -Src $item.FullPath -DestDir $destDir
@@ -518,7 +558,7 @@ if (-not $SkipAgents) {
 if (-not $SkipInstructions) {
     $destDir  = Join-Path $GithubDir 'instructions'
     $catalogue = Build-FlatCatalogue (Join-Path $SourceRoot 'instructions') $destDir '\.instructions\.md$'
-    $selected  = Select-Items -Category 'Instructions' -Items $catalogue -PreSelected $Instructions -Recommended $script:Recommendations
+    $selected  = Select-Items -Category 'Instructions' -Items $catalogue -PreSelected $Instructions -Tags $script:Recommendations
 
     foreach ($item in $selected) {
         $result = Install-File -Src $item.FullPath -DestDir $destDir
