@@ -68,8 +68,7 @@ $GithubDir    = Join-Path $RepoPath '.github'
 $ManifestPath = Join-Path $GithubDir '.copilot-subscriptions.json'
 
 if (-not (Test-Path $ManifestPath)) {
-    Log "No subscriptions manifest found: $ManifestPath" 'WARN'
-    Log "Run init-repo.ps1 first to subscribe to resources."
+    Log "No subscriptions manifest found — run init-repo.ps1 first."
     exit 0
 }
 
@@ -77,7 +76,6 @@ $manifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
 $subs     = @($manifest.subscriptions)
 
 if (-not $subs -or $subs.Count -eq 0) {
-    Log "No subscriptions recorded in manifest." 'WARN'
     exit 0
 }
 

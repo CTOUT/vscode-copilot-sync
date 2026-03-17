@@ -75,14 +75,17 @@ if (-not $SkipSync) {
 
 #region Step 2 — Init repo
 if (-not $SkipInit) {
-    # If a subscriptions manifest exists for the current repo, offer to check for updates first
+    # If a subscriptions manifest exists with entries, check for updates first
     $subscriptionsFile = Join-Path $RepoPath '.github\.copilot-subscriptions.json'
     if (Test-Path $subscriptionsFile) {
-        Step "Check for updates to subscribed repo resources"
-        $updateArgs = @{}
-        if ($DryRun)   { $updateArgs['DryRun']   = $true }
-        if ($RepoPath) { $updateArgs['RepoPath'] = $RepoPath }
-        & (Join-Path $ScriptDir 'update-repo.ps1') @updateArgs
+        $subCount = try { (@((Get-Content $subscriptionsFile -Raw | ConvertFrom-Json).subscriptions)).Count } catch { 0 }
+        if ($subCount -gt 0) {
+            Step "Check for updates to subscribed repo resources"
+            $updateArgs = @{}
+            if ($DryRun)   { $updateArgs['DryRun']   = $true }
+            if ($RepoPath) { $updateArgs['RepoPath'] = $RepoPath }
+            & (Join-Path $ScriptDir 'update-repo.ps1') @updateArgs
+        }
     }
 
     Step "Init repo"
