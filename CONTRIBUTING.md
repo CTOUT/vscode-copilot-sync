@@ -7,16 +7,18 @@ Thank you for considering contributing to the VS Code Copilot Resource Sync Scri
 ### Reporting Bugs
 
 If you find a bug, please create an issue with:
+
 - Clear description of the problem
 - Steps to reproduce
 - Expected vs actual behavior
 - PowerShell version (`$PSVersionTable.PSVersion`)
 - Windows version
-- Relevant log files from `$HOME\.awesome-copilot\logs\`
+- Relevant log files from `scripts\logs\`
 
 ### Suggesting Enhancements
 
 Feature requests are welcome! Please include:
+
 - Clear use case description
 - Why this feature would be useful
 - Proposed implementation (if you have ideas)
@@ -25,6 +27,7 @@ Feature requests are welcome! Please include:
 
 1. **Fork the repository**
 2. **Create a feature branch** from `main`:
+
    ```powershell
    git checkout -b feature/your-feature-name
    ```
@@ -41,20 +44,25 @@ Feature requests are welcome! Please include:
    - Add inline comments for complex code
 
 5. **Test your changes**:
+
    ```powershell
+   # Full dry run (no files written)
+   .\configure.ps1 -DryRun
+
    # Test individual scripts
-   .\sync-awesome-copilot.ps1
-   .\combine-and-publish-prompts.ps1
-   
+   .\scripts\sync-awesome-copilot.ps1 -Plan
+   .\scripts\publish-global.ps1 -DryRun
+
    # Test scheduled task installation
-   .\install-scheduled-task.ps1 -Interval "1h"
+   .\configure.ps1 -InstallTask -Every "1h"
    Start-ScheduledTask -TaskName "AwesomeCopilotSync"
-   
+
    # Verify logs
-   Get-Content "$HOME\.awesome-copilot\logs\sync-*.log" -Tail 20
+   Get-ChildItem .\scripts\logs\sync-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content -Tail 20
    ```
 
 6. **Commit with clear messages**:
+
    ```powershell
    git commit -m "Add feature: description of what you added"
    ```
@@ -82,21 +90,21 @@ function Get-ResourceFiles {
     <#
     .SYNOPSIS
     Retrieves resource files from a directory.
-    
+
     .PARAMETER Path
     The directory path to search.
-    
+
     .PARAMETER Type
     The type of resource to filter (chatmode, instruction, prompt).
     #>
     param(
         [Parameter(Mandatory)]
         [string]$Path,
-        
+
         [ValidateSet('chatmode', 'instruction', 'prompt')]
         [string]$Type
     )
-    
+
     try {
         $pattern = "*.$Type.md"
         Get-ChildItem -Path $Path -Filter $pattern -File
@@ -145,6 +153,7 @@ Before submitting a PR, verify:
 ## Questions?
 
 Feel free to:
+
 - Open an issue for discussion
 - Ask questions in pull request comments
 - Reach out to maintainers
