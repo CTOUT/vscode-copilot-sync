@@ -77,6 +77,7 @@ if (-not $SkipSync) {
 if (-not $SkipInit) {
     # If a subscriptions manifest exists with entries, check for updates first
     $subscriptionsFile = Join-Path $RepoPath '.github\.copilot-subscriptions.json'
+    $subCount = 0
     if (Test-Path $subscriptionsFile) {
         $subCount = try { (@((Get-Content $subscriptionsFile -Raw | ConvertFrom-Json).subscriptions)).Count } catch { 0 }
         if ($subCount -gt 0) {
@@ -89,18 +90,22 @@ if (-not $SkipInit) {
     }
 
     Step "Init repo"
-    $initPrompt = if ($Uninstall) { "Remove agents/instructions/hooks/workflows/skills from .github/?" } else { "Add agents/instructions/hooks/workflows/skills to .github/ in the current repo?" }
-    Write-Host "  $initPrompt" -ForegroundColor Yellow
-    Write-Host "  [Y] Yes   [N] No (default): " -NoNewline -ForegroundColor Yellow
-    $answer = (Read-Host).Trim()
-    if ($answer -match '^[Yy]') {
-        $initArgs = @{}
-        if ($DryRun)     { $initArgs['DryRun']    = $true }
-        if ($RepoPath)   { $initArgs['RepoPath']  = $RepoPath }
-        if ($Uninstall)  { $initArgs['Uninstall'] = $true }
-        & (Join-Path $ScriptDir 'init-repo.ps1') @initArgs
+    if ($Uninstall -and $subCount -eq 0) {
+        Log "Nothing to uninstall — no subscriptions recorded for this repo."
     } else {
-        Log "init-repo skipped."
+        $initPrompt = if ($Uninstall) { "Remove agents/instructions/hooks/workflows/skills from .github/?" } else { "Add agents/instructions/hooks/workflows/skills to .github/ in the current repo?" }
+        Write-Host "  $initPrompt" -ForegroundColor Yellow
+        Write-Host "  [Y] Yes   [N] No (default): " -NoNewline -ForegroundColor Yellow
+        $answer = (Read-Host).Trim()
+        if ($answer -match '^[Yy]') {
+            $initArgs = @{}
+            if ($DryRun)     { $initArgs['DryRun']    = $true }
+            if ($RepoPath)   { $initArgs['RepoPath']  = $RepoPath }
+            if ($Uninstall)  { $initArgs['Uninstall'] = $true }
+            & (Join-Path $ScriptDir 'init-repo.ps1') @initArgs
+        } else {
+            Log "init-repo skipped."
+        }
     }
 }
 
