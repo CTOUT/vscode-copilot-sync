@@ -1,47 +1,47 @@
 <#
 Publish Global Copilot Resources
 
-Publishes two categories of resources from the local awesome-copilot cache to
-global locations where they are always available across all workspaces/repos:
+Publishes all resource categories from the local awesome-copilot cache to
+global locations via junctions (no file duplication — always in sync with
+the cache after a pull).
 
-  Agents  --> VS Code user agents folder (available in Copilot Chat globally)
-              Default: %APPDATA%\Code\User\prompts\
-              Strategy: symlink / junction first, then file-copy fallback
+  Agents        --> %APPDATA%\Code\User\prompts\
+  Skills        --> ~/.copilot/skills/
+  Instructions  --> ~/.copilot/instructions/
+  Hooks         --> ~/.copilot/hooks/
+  Workflows     --> ~/.copilot/workflows/
 
-  Skills  --> Personal skills directory (loaded on-demand by VS Code Agent mode / Copilot CLI)
-              Default: ~\.copilot\skills\
-              Strategy: mirror each skill subdirectory (incremental copy)
+Each category is linked (junction/symlink) so that running sync-awesome-copilot.ps1
+immediately reflects everywhere — no re-publish needed after a cache update.
 
 Usage:
-  # Publish both agents and skills (default)
   .\publish-global.ps1
 
-  # Publish only agents
-  .\publish-global.ps1 -SkipSkills
-
-  # Publish only skills
-  .\publish-global.ps1 -SkipAgents
+  # Skip specific categories
+  .\publish-global.ps1 -SkipSkills -SkipHooks
 
   # Override VS Code agents folder (e.g. for a named profile)
   .\publish-global.ps1 -AgentsTarget "$env:APPDATA\Code\User\profiles\MyProfile\prompts"
 
-  # Dry run - show what would happen
+  # Dry run
   .\publish-global.ps1 -DryRun
 
 Notes:
-  - Agents are linked (not copied) where possible so that sync updates are
-    immediately reflected in VS Code without re-running this script.
-  - Skills are copied individually so each skill directory is self-contained
-    under ~/.copilot/skills/<skill-name>/.
-  - Run after sync-awesome-copilot.ps1, or add to the scheduled task via
-    install-scheduled-task.ps1.
+  - Existing real directories are replaced with a junction automatically.
+  - Falls back to symlink, then full copy if junction creation fails.
 #>
 [CmdletBinding()] param(
-    [string]$SourceRoot   = "$HOME/.awesome-copilot",
-    [string]$AgentsTarget = (Join-Path $env:APPDATA 'Code\User\prompts'),
-    [string]$SkillsTarget = (Join-Path $HOME '.copilot\skills'),
+    [string]$SourceRoot          = "$HOME/.awesome-copilot",
+    [string]$AgentsTarget        = (Join-Path $env:APPDATA 'Code\User\prompts'),
+    [string]$SkillsTarget        = (Join-Path $HOME '.copilot\skills'),
+    [string]$InstructionsTarget  = (Join-Path $HOME '.copilot\instructions'),
+    [string]$HooksTarget         = (Join-Path $HOME '.copilot\hooks'),
+    [string]$WorkflowsTarget     = (Join-Path $HOME '.copilot\workflows'),
     [switch]$SkipAgents,
     [switch]$SkipSkills,
+    [switch]$SkipInstructions,
+    [switch]$SkipHooks,
+    [switch]$SkipWorkflows,
     [switch]$DryRun
 )
 
@@ -54,161 +54,96 @@ function Log($m, [string]$level = 'INFO') {
     Write-Host "[$ts][$level] $m" -ForegroundColor $color
 }
 
-$AgentsSource = Join-Path $SourceRoot 'agents'
-$SkillsSource = Join-Path $SourceRoot 'skills'
-
 #endregion # Initialisation
 
-#region Agents
-if (-not $SkipAgents) {
-    if (-not (Test-Path $AgentsSource)) {
-        Log "Agents source not found: $AgentsSource (run sync-awesome-copilot.ps1 first)" 'WARN'
+#region Junction helper
+function Publish-Junction {
+    param([string]$Category, [string]$Source, [string]$Target)
+
+    if (-not (Test-Path $Source)) {
+        Log "$Category source not found: $Source (run sync-awesome-copilot.ps1 first)" 'WARN'
+        return
     }
-    else {
-        Log "Publishing agents: $AgentsSource --> $AgentsTarget"
 
-        if ($DryRun) {
-            Log "[DryRun] Would link/copy agents folder to $AgentsTarget"
-        }
-        else {
-            # Attempt junction first (no elevation required on Windows), then symlink, then copy
-            $linked = $false
+    Log "Publishing $Category`: $Source --> $Target"
 
-            if (Test-Path $AgentsTarget) {
-                $item = Get-Item $AgentsTarget -Force
-                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-                    Log "Agents already linked at $AgentsTarget - skipping"
-                    $linked = $true
-                }
-                else {
-                    # Exists as a real directory - update files in place rather than replacing
-                    Log "Agents folder exists as real directory; updating files in place"
-                    Get-ChildItem $AgentsSource -File | ForEach-Object {
-                        $dest = Join-Path $AgentsTarget $_.Name
-                        $srcHash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-                        $dstHash = if (Test-Path $dest) { (Get-FileHash $dest -Algorithm SHA256).Hash } else { $null }
-                        if ($srcHash -ne $dstHash) {
-                            Copy-Item $_.FullName $dest -Force
-                            Log "  Updated: $($_.Name)"
-                        }
-                    }
-                    $linked = $true
-                }
-            }
-
-            if (-not $linked) {
-                $parent = Split-Path $AgentsTarget -Parent
-                if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
-
-                try {
-                    cmd /c mklink /J `"$AgentsTarget`" `"$AgentsSource`" | Out-Null
-                    Log "Created junction: $AgentsTarget --> $AgentsSource"
-                }
-                catch {
-                    Log "Junction failed ($($_.Exception.Message)); trying symlink" 'WARN'
-                    try {
-                        New-Item -ItemType SymbolicLink -Path $AgentsTarget -Target $AgentsSource -Force | Out-Null
-                        Log "Created symlink: $AgentsTarget --> $AgentsSource"
-                    }
-                    catch {
-                        Log "Symlink failed; copying files instead" 'WARN'
-                        New-Item -ItemType Directory -Path $AgentsTarget -Force | Out-Null
-                        Copy-Item (Join-Path $AgentsSource '*') $AgentsTarget -Force
-                        Log "Copied agents to $AgentsTarget"
-                    }
-                }
-            }
-        }
-        Log "Agents: done. Restart VS Code if agents do not appear immediately."
+    if ($DryRun) {
+        Log "[DryRun] Would link $Category to $Target"
+        return
     }
-}
 
-#endregion # Agents
-
-#region Skills
-if (-not $SkipSkills) {
-    if (-not (Test-Path $SkillsSource)) {
-        Log "Skills source not found: $SkillsSource (run sync-awesome-copilot.ps1 first)" 'WARN'
+    if (Test-Path $Target) {
+        $item = Get-Item $Target -Force
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            Log "$Category already linked at $Target - skipping"
+            return
+        }
+        # Real directory — remove so we can replace with a junction
+        Log "Replacing existing $Category directory with junction..." 'WARN'
+        Remove-Item $Target -Recurse -Force
     }
-    else {
-        Log "Publishing skills: $SkillsSource --> $SkillsTarget"
 
-        if ($DryRun) {
-            Log "[DryRun] Would link/copy skills folder to $SkillsTarget"
+    $parent = Split-Path $Target -Parent
+    if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+
+    try {
+        cmd /c mklink /J `"$Target`" `"$Source`" | Out-Null
+        Log "Created junction: $Target --> $Source"
+    }
+    catch {
+        Log "Junction failed ($($_.Exception.Message)); trying symlink" 'WARN'
+        try {
+            New-Item -ItemType SymbolicLink -Path $Target -Target $Source -Force | Out-Null
+            Log "Created symlink: $Target --> $Source"
         }
-        else {
-            $linked = $false
-
-            if (Test-Path $SkillsTarget) {
-                $item = Get-Item $SkillsTarget -Force
-                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-                    Log "Skills already linked at $SkillsTarget - skipping"
-                    $linked = $true
-                }
-                else {
-                    # Real directory exists — remove it so we can replace with a junction
-                    Log "Replacing existing skills directory with junction..." 'WARN'
-                    Remove-Item $SkillsTarget -Recurse -Force
-                }
-            }
-
-            if (-not $linked) {
-                $parent = Split-Path $SkillsTarget -Parent
-                if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
-
-                try {
-                    cmd /c mklink /J `"$SkillsTarget`" `"$SkillsSource`" | Out-Null
-                    Log "Created junction: $SkillsTarget --> $SkillsSource"
-                }
-                catch {
-                    Log "Junction failed ($($_.Exception.Message)); trying symlink" 'WARN'
-                    try {
-                        New-Item -ItemType SymbolicLink -Path $SkillsTarget -Target $SkillsSource -Force | Out-Null
-                        Log "Created symlink: $SkillsTarget --> $SkillsSource"
-                    }
-                    catch {
-                        Log "Symlink failed; copying files instead" 'WARN'
-                        New-Item -ItemType Directory -Path $SkillsTarget -Force | Out-Null
-                        Copy-Item (Join-Path $SkillsSource '*') $SkillsTarget -Recurse -Force
-                        Log "Copied skills to $SkillsTarget"
-                    }
-                }
-            }
-        }
-
-        Log "Skills: done."
-
-        # Ensure VS Code is configured to discover skills
-        $vsCodeSettings = Join-Path $env:APPDATA 'Code\User\settings.json'
-        if (-not (Test-Path $vsCodeSettings)) {
-            Log "VS Code settings.json not found at $vsCodeSettings — skills discovery not configured. Open VS Code once to generate it, then re-run." 'WARN'
-        }
-        else {
-            try {
-                $s = Get-Content $vsCodeSettings -Raw | ConvertFrom-Json
-                $changed = $false
-                if (-not $s.'chat.useAgentSkills') {
-                    $s | Add-Member -NotePropertyName 'chat.useAgentSkills' -NotePropertyValue $true -Force
-                    $changed = $true
-                }
-                $loc = '~/.copilot/skills/**'
-                if (-not $s.'chat.agentSkillsLocations' -or -not $s.'chat.agentSkillsLocations'.$loc) {
-                    $locs = if ($s.'chat.agentSkillsLocations') { $s.'chat.agentSkillsLocations' } else { [pscustomobject]@{} }
-                    $locs | Add-Member -NotePropertyName $loc -NotePropertyValue $true -Force
-                    $s | Add-Member -NotePropertyName 'chat.agentSkillsLocations' -NotePropertyValue $locs -Force
-                    $changed = $true
-                }
-                if ($changed) {
-                    $s | ConvertTo-Json -Depth 5 | Set-Content $vsCodeSettings -Encoding UTF8
-                    Log "Configured chat.useAgentSkills and chat.agentSkillsLocations in VS Code settings"
-                }
-            }
-            catch { Log "Could not update VS Code settings: $_" 'WARN' }
+        catch {
+            Log "Symlink failed; copying files instead" 'WARN'
+            New-Item -ItemType Directory -Path $Target -Force | Out-Null
+            Copy-Item (Join-Path $Source '*') $Target -Recurse -Force
+            Log "Copied $Category to $Target"
         }
     }
 }
 
-#endregion # Skills
+#endregion # Junction helper
+
+if (-not $SkipAgents)       { Publish-Junction 'Agents'       (Join-Path $SourceRoot 'agents')       $AgentsTarget }
+if (-not $SkipSkills)       { Publish-Junction 'Skills'       (Join-Path $SourceRoot 'skills')       $SkillsTarget }
+if (-not $SkipInstructions) { Publish-Junction 'Instructions' (Join-Path $SourceRoot 'instructions') $InstructionsTarget }
+if (-not $SkipHooks)        { Publish-Junction 'Hooks'        (Join-Path $SourceRoot 'hooks')        $HooksTarget }
+if (-not $SkipWorkflows)    { Publish-Junction 'Workflows'    (Join-Path $SourceRoot 'workflows')    $WorkflowsTarget }
+
+#region VS Code settings — ensure skills discovery is configured
+if (-not $SkipSkills -and -not $DryRun) {
+    $vsCodeSettings = Join-Path $env:APPDATA 'Code\User\settings.json'
+    if (-not (Test-Path $vsCodeSettings)) {
+        Log "VS Code settings.json not found — skills discovery not configured. Open VS Code once then re-run." 'WARN'
+    }
+    else {
+        try {
+            $s = Get-Content $vsCodeSettings -Raw | ConvertFrom-Json
+            $changed = $false
+            if (-not $s.'chat.useAgentSkills') {
+                $s | Add-Member -NotePropertyName 'chat.useAgentSkills' -NotePropertyValue $true -Force
+                $changed = $true
+            }
+            $loc = '~/.copilot/skills/**'
+            if (-not $s.'chat.agentSkillsLocations' -or -not $s.'chat.agentSkillsLocations'.$loc) {
+                $locs = if ($s.'chat.agentSkillsLocations') { $s.'chat.agentSkillsLocations' } else { [pscustomobject]@{} }
+                $locs | Add-Member -NotePropertyName $loc -NotePropertyValue $true -Force
+                $s | Add-Member -NotePropertyName 'chat.agentSkillsLocations' -NotePropertyValue $locs -Force
+                $changed = $true
+            }
+            if ($changed) {
+                $s | ConvertTo-Json -Depth 5 | Set-Content $vsCodeSettings -Encoding UTF8
+                Log "Configured chat.useAgentSkills and chat.agentSkillsLocations in VS Code settings"
+            }
+        }
+        catch { Log "Could not update VS Code settings: $_" 'WARN' }
+    }
+}
+#endregion # VS Code settings
 
 if ($DryRun) { Log "[DryRun] No changes made." }
 else { Log "Global publish complete." }
+
