@@ -539,12 +539,11 @@ function Measure-ItemRelevance {
 
     foreach ($tag in $Tags) {
         $t = $tag.ToLower()
-        # Name match: keyword must appear as the LEADING segment(s) of the name.
-        # e.g. 'python' matches 'python-mcp-server' but NOT 'dataverse-python-sdk'.
-        # Compound keywords like 'github-actions' match names starting with that prefix.
-        $firstSegment = ($nameLower -split '-')[0]
-        $nameMatch = ($firstSegment -eq $t) -or ($nameLower.StartsWith("$t-")) -or ($nameLower -eq $t)
-        if ($nameMatch) { $score += 2 }
+        # Name match: keyword must be a complete dash-segment in the item name.
+        # e.g. 'python' matches 'python-mcp-server' AND 'dataverse-python-sdk'
+        # but NOT 'pythonic-tips' (partial segment match).
+        $segments = $nameLower -split '-'
+        if ($segments -contains $t) { $score += 2 }
     }
 
     # For directories, score against README.md / SKILL.md content
