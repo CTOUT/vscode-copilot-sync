@@ -141,7 +141,6 @@ function Detect-RepoStack {
 
     # Always recommend security-focused resources for every repo
     $recs.Add('owasp')
-    $recs.Add('security')
 
     return @($recs | Sort-Object -Unique)
 }
@@ -707,7 +706,9 @@ if (-not $SkipAgents) {
             Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "agents|$($_.Name)" })
         }
     } else {
-        $selected  = Select-Items -Category 'Agents' -Items $catalogue -PreSelected $Agents -Tags $script:Recommendations
+        # Agents: also score on 'security' since security-reviewer agents are universally useful
+        $agentTags = @($script:Recommendations) + 'security' | Sort-Object -Unique
+        $selected  = Select-Items -Category 'Agents' -Items $catalogue -PreSelected $Agents -Tags $agentTags
 
         foreach ($item in $selected) {
             $result = Install-File -Src $item.FullPath -DestDir $destDir
