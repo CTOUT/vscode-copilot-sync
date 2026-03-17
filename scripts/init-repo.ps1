@@ -81,6 +81,8 @@ if (-not ([System.Management.Automation.PSTypeName]'CopilotSync.FgHelper').Type)
         [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
         [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc e, IntPtr p);
         [DllImport("user32.dll")] public static extern int  GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
+        [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, int extra);
+        [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
         public delegate bool EnumWindowsProc(IntPtr h, IntPtr p);
         public static System.IntPtr FindWindowContaining(string part) {
             System.IntPtr found = System.IntPtr.Zero;
@@ -92,14 +94,20 @@ if (-not ([System.Management.Automation.PSTypeName]'CopilotSync.FgHelper').Type)
             }, System.IntPtr.Zero);
             return found;
         }
+        public static void BringToFront(IntPtr h) {
+            keybd_event(0x12, 0, 0x0002, 0); // Alt key-up — resets Windows foreground-steal lock
+            ShowWindow(h, 9);                  // SW_RESTORE
+            SetForegroundWindow(h);
+            BringWindowToTop(h);
+        }
 '@
 }
 
 function Show-OGV {
     # Wrapper around Out-GridView that forces the window to the foreground.
-    # Starts a runspace that polls for the window by partial title match, then
-    # calls SetForegroundWindow (valid because this PowerShell process owns focus
-    # at the time it opens OGV).
+    # Uses keybd_event(Alt) to reset Windows' foreground-steal lock before
+    # calling SetForegroundWindow — required when the foreground token has
+    # expired (e.g. after the catalogue loading phase).
     param([Parameter(ValueFromPipeline)][object[]]$InputObject, [string]$Title, [switch]$PassThru)
     begin   { $all = [System.Collections.Generic.List[object]]::new() }
     process { foreach ($i in $InputObject) { $all.Add($i) } }
@@ -111,12 +119,11 @@ function Show-OGV {
         $ps.Runspace = $rs
         $null = $ps.AddScript({
             param($t)
-            for ($i = 0; $i -lt 40; $i++) {   # poll up to 4 s
+            for ($i = 0; $i -lt 50; $i++) {   # poll up to 5 s
                 Start-Sleep -Milliseconds 100
                 $h = [CopilotSync.FgHelper]::FindWindowContaining($t)
-                if ($h -ne [IntPtr]::Zero) {
-                    [CopilotSync.FgHelper]::ShowWindow($h, 9)        | Out-Null  # SW_RESTORE
-                    [CopilotSync.FgHelper]::SetForegroundWindow($h)  | Out-Null
+                if ($h -ne [System.IntPtr]::Zero) {
+                    [CopilotSync.FgHelper]::BringToFront($h)
                     break
                 }
             }
