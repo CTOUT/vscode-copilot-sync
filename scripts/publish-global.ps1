@@ -133,44 +133,50 @@ if (-not $SkipSkills) {
     else {
         Log "Publishing skills: $SkillsSource --> $SkillsTarget"
 
-        if (-not $DryRun -and -not (Test-Path $SkillsTarget)) {
-            New-Item -ItemType Directory -Path $SkillsTarget -Force | Out-Null
+        if ($DryRun) {
+            Log "[DryRun] Would link/copy skills folder to $SkillsTarget"
         }
+        else {
+            $linked = $false
 
-        $added = 0; $updated = 0; $unchanged = 0
-
-        Get-ChildItem $SkillsSource -Directory | ForEach-Object {
-            $skillName = $_.Name
-            $skillSrc  = $_.FullName
-            $skillDest = Join-Path $SkillsTarget $skillName
-
-            if ($DryRun) {
-                Log "[DryRun] Would publish skill: $skillName"
-                $added++
-                return
-            }
-
-            if (-not (Test-Path $skillDest)) {
-                New-Item -ItemType Directory -Path $skillDest -Force | Out-Null
-            }
-
-            Get-ChildItem $skillSrc -File -Recurse | ForEach-Object {
-                $rel  = $_.FullName.Substring($skillSrc.Length).TrimStart('\','/')
-                $dest = Join-Path $skillDest $rel
-                $destDir = Split-Path $dest -Parent
-                if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-
-                $srcHash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-                $dstHash = if (Test-Path $dest) { (Get-FileHash $dest -Algorithm SHA256).Hash } else { $null }
-                if ($srcHash -ne $dstHash) {
-                    Copy-Item $_.FullName $dest -Force
-                    if ($dstHash) { $updated++ } else { $added++ }
+            if (Test-Path $SkillsTarget) {
+                $item = Get-Item $SkillsTarget -Force
+                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                    Log "Skills already linked at $SkillsTarget - skipping"
+                    $linked = $true
                 }
-                else { $unchanged++ }
+                else {
+                    # Real directory exists — remove it so we can replace with a junction
+                    Log "Replacing existing skills directory with junction..." 'WARN'
+                    Remove-Item $SkillsTarget -Recurse -Force
+                }
+            }
+
+            if (-not $linked) {
+                $parent = Split-Path $SkillsTarget -Parent
+                if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+
+                try {
+                    cmd /c mklink /J `"$SkillsTarget`" `"$SkillsSource`" | Out-Null
+                    Log "Created junction: $SkillsTarget --> $SkillsSource"
+                }
+                catch {
+                    Log "Junction failed ($($_.Exception.Message)); trying symlink" 'WARN'
+                    try {
+                        New-Item -ItemType SymbolicLink -Path $SkillsTarget -Target $SkillsSource -Force | Out-Null
+                        Log "Created symlink: $SkillsTarget --> $SkillsSource"
+                    }
+                    catch {
+                        Log "Symlink failed; copying files instead" 'WARN'
+                        New-Item -ItemType Directory -Path $SkillsTarget -Force | Out-Null
+                        Copy-Item (Join-Path $SkillsSource '*') $SkillsTarget -Recurse -Force
+                        Log "Copied skills to $SkillsTarget"
+                    }
+                }
             }
         }
 
-        Log "Skills: added=$added updated=$updated unchanged=$unchanged --> $SkillsTarget"
+        Log "Skills: done."
 
         # Ensure VS Code is configured to discover skills
         $vsCodeSettings = Join-Path $env:APPDATA 'Code\User\settings.json'
