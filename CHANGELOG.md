@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `scripts/sync-awesome-copilot.ps1`: **Structural change detection (Option 1)** — after each non-first-run pull, the script checks that every category folder present in the previous manifest still exists on disk. If any expected category has disappeared, it logs a `STRUCTURAL CHANGE DETECTED` warning listing each missing folder and exits with a non-zero code. This catches upstream category renames or removals (e.g. `agents` → `agent`) before they silently break subscriptions.
+- `scripts/sync-awesome-copilot.ps1`: **Mass-removal threshold (Option 2)** — after counting removals, if ≥ 25 % of all previously tracked files are gone in a single pull (and there were at least 10 files before), the script logs a `MASS-REMOVAL DETECTED` warning (with actual ratio) and exits before writing the new manifest. This guards against large upstream restructures being silently applied.
+- `scripts/sync-awesome-copilot.ps1`: `-Force` switch — bypasses both the structural change and mass-removal safety checks. Use after reviewing the upstream changes and confirming the new structure is intentional.
+
+### Identified (not yet extracted)
+
+- **Shared helper duplication** — `Log`, `Show-OGV`, `Get-DirHash`, `Get-Description`, `Install-File`, `Remove-File`, `Test-RequiresSetup`, and the subscription upsert/remove pattern are defined independently in multiple scripts (`init-repo.ps1`, `init-user.ps1`, `update-repo.ps1`, `update-user.ps1`). Planned fix: extract to a dot-sourced `scripts/Common.ps1` in a follow-up PR.
+
 ## [1.2.2] - 2026-02-27
 
 ### Changed

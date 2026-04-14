@@ -18,12 +18,16 @@ Usage:
 
   # Force a specific git tool
   .\sync-awesome-copilot.ps1 -GitTool git
+
+  # Skip structural-change / mass-removal safety checks
+  .\sync-awesome-copilot.ps1 -Force
 #>
 [CmdletBinding()] param(
     [string]$Dest = "$HOME/.awesome-copilot",
     [string]$Categories = 'agents,instructions,workflows,hooks,skills',
     [switch]$Quiet,
     [switch]$Plan,              # Dry-run: show what would change without writing files
+    [switch]$Force,             # Skip structural-change and mass-removal safety checks
     [int]$LogRetentionDays = 14,
     [int]$TimeoutSeconds = 600,
     [ValidateSet('auto', 'gh', 'git')]
@@ -174,6 +178,31 @@ if ($IsFirstRun) {
 
 Check-Timeout
 
+#region Structural change detection — Option 1
+# On subsequent syncs, verify that every previously-synced category folder still
+# exists after the pull.  A missing folder signals an upstream reorganisation
+# (rename, merge, removal) rather than a routine file change.
+if (-not $IsFirstRun -and $PrevManifest -and $PrevManifest.categories) {
+    $MissingCategories = @()
+    foreach ($prevCat in @($PrevManifest.categories)) {
+        # Only flag categories the user still wants — if they removed one from
+        # -Categories themselves that is intentional, not a breaking change.
+        if ($CategoriesList -contains $prevCat) {
+            if (-not (Test-Path (Join-Path $Dest $prevCat))) {
+                $MissingCategories += $prevCat
+            }
+        }
+    }
+    if ($MissingCategories.Count -gt 0) {
+        Write-Log 'STRUCTURAL CHANGE DETECTED: one or more category folders that existed on the last sync are now absent from the upstream repo.' 'WARN'
+        foreach ($mc in $MissingCategories) { Write-Log "  Missing category: $mc" 'WARN' }
+        Write-Log 'This likely means the upstream repo was reorganised.  Update -Categories to match the new structure, or re-run with -Force to sync anyway.' 'WARN'
+        if (-not $Force) { exit 1 }
+        Write-Log '-Force specified — continuing despite missing category folders.' 'WARN'
+    }
+}
+#endregion # Structural change detection
+
 #endregion # Clone or pull
 
 #region File scan and change detection
@@ -219,6 +248,25 @@ if ($PrevManifest -and $PrevManifest.items) {
         }
     }
 }
+
+#region Mass-removal threshold — Option 2
+# If more than 25 % of previously tracked files have disappeared in a single
+# pull (and there were at least 10 files before), treat it as a likely upstream
+# restructure and require explicit confirmation before writing the new manifest.
+if (-not $IsFirstRun -and $PrevManifest -and $PrevManifest.items) {
+    $PrevTotal = @($PrevManifest.items).Count
+    if ($PrevTotal -ge 10 -and $Removed -gt 0) {
+        $RemovalRatio = $Removed / $PrevTotal
+        if ($RemovalRatio -ge 0.25) {
+            Write-Log ("MASS-REMOVAL DETECTED: {0} of {1} previously tracked file(s) are gone ({2:P0})." -f $Removed, $PrevTotal, $RemovalRatio) 'WARN'
+            Write-Log 'This may indicate the upstream repo has been significantly restructured.' 'WARN'
+            Write-Log 'Re-run with -Force to accept the changes and write the new manifest.' 'WARN'
+            if (-not $Force) { exit 1 }
+            Write-Log '-Force specified — continuing despite large removal count.' 'WARN'
+        }
+    }
+}
+#endregion # Mass-removal threshold
 
 #endregion # File scan
 

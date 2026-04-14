@@ -104,14 +104,17 @@ Locally modified files are flagged with `[~]` before removal so you don't accide
 
 ### `configure.ps1` — Main entry point
 
-Chains sync → repo init in one command.
+Chains sync → user-level → repo init in one command.
 
 ```powershell
-.\configure.ps1                                    # Full run
-.\configure.ps1 -Install                          # Sync + go straight to pickers
-.\configure.ps1 -SkipInit                         # Sync only
-.\configure.ps1 -SkipSync                         # Repo init only
-.\configure.ps1 -SkipSync -Uninstall              # Remove resources
+.\configure.ps1                                    # Full run (sync + both prompts)
+.\configure.ps1 -Install                          # Sync + go straight to repo pickers
+.\configure.ps1 -User                             # Sync + go straight to user-level picker
+.\configure.ps1 -SkipInit                         # Sync + user-level only
+.\configure.ps1 -SkipUser                         # Sync + repo only
+.\configure.ps1 -SkipSync                         # Repo init only (no sync)
+.\configure.ps1 -SkipSync -Uninstall              # Remove repo resources
+.\configure.ps1 -UninstallUser                    # Remove user-level agents
 .\configure.ps1 -RepoPath "C:\Projects\my-app"   # Target specific repo
 .\configure.ps1 -DryRun                           # Preview all changes
 ```
@@ -132,7 +135,17 @@ Clones (first run) or pulls (subsequent runs) `github/awesome-copilot` as a spar
 .\scripts\sync-awesome-copilot.ps1 -Plan                    # Dry run
 .\scripts\sync-awesome-copilot.ps1 -Categories "agents,instructions"
 .\scripts\sync-awesome-copilot.ps1 -GitTool git             # Force git
+.\scripts\sync-awesome-copilot.ps1 -Force                   # Skip safety checks
 ```
+
+**Breaking-change detection** — on subsequent syncs the script runs two safety checks and exits before writing the manifest if either triggers:
+
+| Check | Trigger | Action |
+| --- | --- | --- |
+| Structural | A previously-synced category folder is absent after pull | `STRUCTURAL CHANGE DETECTED` — lists missing folders, exits 1 |
+| Mass-removal | ≥ 25 % of tracked files removed in one pull | `MASS-REMOVAL DETECTED` — shows ratio, exits 1 |
+
+Re-run with `-Force` once you have reviewed the upstream changes and confirmed the new structure is intentional.
 
 ---
 
@@ -167,6 +180,38 @@ Reads `.github/.copilot-subscriptions.json` and applies any upstream changes fro
 ```
 
 > **Tip:** The `[↑]` column in `init-repo.ps1` shows update availability inline — run `update-repo.ps1` when you want to apply them all at once.
+
+---
+
+### `scripts/init-user.ps1` — Configure user-level agents
+
+Installs agents into VS Code's user-level prompts folder (`%APPDATA%\Code\User\prompts\`), making them available across **all repos and VS Code windows** — no `.github/` needed.
+
+This is ideal for general-purpose agents (e.g. "beastmode" focused modes, code reviewers, rubber-duck agents) that have no meaningful relationship to a specific project's language or stack.
+
+**Full lifecycle** — install, update, and remove, tracked in `~/.awesome-copilot/user-subscriptions.json`.
+
+```powershell
+.\scripts\init-user.ps1                              # Interactive
+.\scripts\init-user.ps1 -DryRun                      # Preview
+.\scripts\init-user.ps1 -Uninstall                   # Remove user-level agents
+.\scripts\init-user.ps1 -Agents "beastmode,se-security-reviewer"
+
+# Non-default VS Code installations
+.\scripts\init-user.ps1 -PromptsDir "$env:APPDATA\Code - Insiders\User\prompts"
+```
+
+---
+
+### `scripts/update-user.ps1` — Apply upstream updates to user-level agents
+
+Reads `~/.awesome-copilot/user-subscriptions.json` and refreshes installed user-level agents from the local cache.
+
+```powershell
+.\scripts\update-user.ps1                    # Interactive
+.\scripts\update-user.ps1 -DryRun           # Show what would change
+.\scripts\update-user.ps1 -Force            # Apply all without prompting
+```
 
 ## 🔧 Configuration
 
