@@ -61,6 +61,7 @@ Notes:
     [switch]$SkipHooks,
     [switch]$SkipWorkflows,
     [switch]$SkipSkills,
+    [string]$UserPromptsDir = "$env:APPDATA\Code\User\prompts",  # used to flag agents already installed globally
     [switch]$DryRun,
     [switch]$Uninstall   # show a picker of installed items to remove instead of installing
 )
@@ -314,7 +315,7 @@ function Select-Items {
 
     Write-Host ""
     Write-Host "  === $Category ===" -ForegroundColor Yellow
-    Write-Host "  [*]=Installed  [↑]=Update available  [~]=Locally modified  ★=Recommended  [!]=Setup required" -ForegroundColor DarkGray
+    Write-Host "  [*]=Installed  [↑]=Update available  [~]=Locally modified  [U]=User-level  ★=Recommended  [!]=Setup required" -ForegroundColor DarkGray
 
     # Try Out-GridView (Windows GUI - filterable, multi-select)
     $ogvAvailable = $false
@@ -329,13 +330,14 @@ function Select-Items {
                 if ($_.AlreadyInstalled)  { $s += '[*]' }
                 if ($_.UpdateAvailable)   { $s += '[↑]' }
                 if ($_.LocallyModified)   { $s += '[~]' }
+                if ($_.UserInstalled)     { $s += '[U]' }
                 if ($_.RequiresSetup)     { $s += '[!]' }
                 $s
             }},
             @{ N='Name';        E={ $_.Name } },
             @{ N='Description'; E={ $_.Description } })
 
-        $picked = $display | Show-OGV -Title "Select $Category   ★=Recommended (config-free)  [*]=Installed  [↑]=Update  [~]=Modified  [!]=Setup required" -SearchKey "Select $Category" -PassThru
+        $picked = $display | Show-OGV -Title "Select $Category   ★=Recommended  [*]=Installed  [↑]=Update  [~]=Modified  [U]=User-level  [!]=Setup required" -SearchKey "Select $Category" -PassThru
         if (-not $picked) { return @() }
         $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
         return @($Items | Where-Object { $pickedNames -contains $_.Name })
@@ -349,8 +351,9 @@ function Select-Items {
         if ($item.AlreadyInstalled) { $status += '[*]' }
         if ($item.UpdateAvailable)  { $status += '[↑]' }
         if ($item.LocallyModified)  { $status += '[~]' }
+        if ($item.UserInstalled)    { $status += '[U]' }
         $rec  = if ($item.IsRecommended) { '[★]' } elseif ($item.RequiresSetup) { '[!]' } else { '   ' }
-        $color = if ($item.UpdateAvailable) { 'Cyan' } elseif ($item.AlreadyInstalled) { 'DarkCyan' } elseif ($item.IsRecommended) { 'Yellow' } elseif ($item.RequiresSetup) { 'DarkYellow' } else { 'White' }
+        $color = if ($item.UpdateAvailable) { 'Cyan' } elseif ($item.AlreadyInstalled) { 'DarkCyan' } elseif ($item.UserInstalled) { 'DarkMagenta' } elseif ($item.IsRecommended) { 'Yellow' } elseif ($item.RequiresSetup) { 'DarkYellow' } else { 'White' }
         Write-Host ("  {0,3}. {1} {2,-6} {3}" -f ($i+1), $rec, $status, $item.Name) -ForegroundColor $color
         if ($item.Description) {
             Write-Host ("             {0}" -f $item.Description) -ForegroundColor DarkGray
@@ -626,7 +629,7 @@ function Test-RequiresSetup([string]$FilePath) {
     } catch { return $false }
 }
 
-function Build-FlatCatalogue([string]$CatDir, [string]$DestDir, [string]$Pattern, [string]$Category) {
+function Build-FlatCatalogue([string]$CatDir, [string]$DestDir, [string]$Pattern, [string]$Category, [string]$UserDir = '') {
     if (-not (Test-Path $CatDir)) { return @() }
     Get-ChildItem $CatDir -File | Where-Object { $_.Name -match $Pattern } | ForEach-Object {
         $destFile  = Join-Path $DestDir $_.Name
@@ -646,6 +649,9 @@ function Build-FlatCatalogue([string]$CatDir, [string]$DestDir, [string]$Pattern
             $updateAvailable  = $srcHash -ne $currentHash
         }
 
+        # Check if this item is already installed at user level (global prompts folder)
+        $userInstalled = $UserDir -and (Test-Path (Join-Path $UserDir $_.Name))
+
         [pscustomobject]@{
             Name             = $itemName
             FileName         = $_.Name
@@ -653,6 +659,7 @@ function Build-FlatCatalogue([string]$CatDir, [string]$DestDir, [string]$Pattern
             Description      = Get-Description $_.FullName
             RequiresSetup    = Test-RequiresSetup $_.FullName
             AlreadyInstalled = $installed
+            UserInstalled    = [bool]$userInstalled
             ManagedByScript  = $managedByScript
             UpdateAvailable  = $updateAvailable
             LocallyModified  = $locallyModified
@@ -740,7 +747,7 @@ function Should-LoadCatalogue([string]$Category, [string]$DestDir, [switch]$IsSk
 }
 
 Log "Loading resource catalogues..."
-$catAgents       = if (Should-LoadCatalogue 'agents'       (Join-Path $GithubDir 'agents')       -IsSkipped:$SkipAgents)       { Build-FlatCatalogue (Join-Path $SourceRoot 'agents')       (Join-Path $GithubDir 'agents')       '\.agent\.md$'        'agents'       } else { @() }
+$catAgents       = if (Should-LoadCatalogue 'agents'       (Join-Path $GithubDir 'agents')       -IsSkipped:$SkipAgents)       { Build-FlatCatalogue (Join-Path $SourceRoot 'agents')       (Join-Path $GithubDir 'agents')       '\.agent\.md$'        'agents'       $UserPromptsDir } else { @() }
 $catInstructions = if (Should-LoadCatalogue 'instructions' (Join-Path $GithubDir 'instructions') -IsSkipped:$SkipInstructions) { Build-FlatCatalogue (Join-Path $SourceRoot 'instructions') (Join-Path $GithubDir 'instructions') '\.instructions\.md$' 'instructions' } else { @() }
 $catHooks        = if (Should-LoadCatalogue 'hooks'        (Join-Path $GithubDir 'hooks')        -IsSkipped:$SkipHooks)        { Build-DirCatalogue  (Join-Path $SourceRoot 'hooks')        (Join-Path $GithubDir 'hooks')                               'hooks'        } else { @() }
 $catWorkflows    = if (Should-LoadCatalogue 'workflows'    (Join-Path $GithubDir 'workflows')    -IsSkipped:$SkipWorkflows)    { Build-FlatCatalogue (Join-Path $SourceRoot 'workflows')    (Join-Path $GithubDir 'workflows')    '\.md$'               'workflows'    } else { @() }
