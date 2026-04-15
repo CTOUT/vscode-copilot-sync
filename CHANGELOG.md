@@ -9,13 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `scripts/sync-awesome-copilot.ps1`: **Structural change detection (Option 1)** — after each non-first-run pull, the script checks that every category folder present in the previous manifest still exists on disk. If any expected category has disappeared, it logs a `STRUCTURAL CHANGE DETECTED` warning listing each missing folder and exits with a non-zero code. This catches upstream category renames or removals (e.g. `agents` → `agent`) before they silently break subscriptions.
-- `scripts/sync-awesome-copilot.ps1`: **Mass-removal threshold (Option 2)** — after counting removals, if ≥ 25 % of all previously tracked files are gone in a single pull (and there were at least 10 files before), the script logs a `MASS-REMOVAL DETECTED` warning (with actual ratio) and exits before writing the new manifest. This guards against large upstream restructures being silently applied.
-- `scripts/sync-awesome-copilot.ps1`: `-Force` switch — bypasses both the structural change and mass-removal safety checks. Use after reviewing the upstream changes and confirming the new structure is intentional.
+- `scripts/sync-awesome-copilot.ps1`: **Structural change detection** — after each non-first-run pull, verifies every previously-synced category folder still exists on disk. Logs `STRUCTURAL CHANGE DETECTED` (with missing folder list) and exits non-zero if any are absent. Catches upstream category renames or removals before they silently break subscriptions.
+- `scripts/sync-awesome-copilot.ps1`: **Mass-removal threshold** — if ≥ 25 % of all previously tracked files disappear in a single pull (min 10 files prior), logs `MASS-REMOVAL DETECTED` with the actual ratio and exits before writing the new manifest. Guards against large upstream restructures being silently applied.
+- `scripts/sync-awesome-copilot.ps1`: `-Force` switch — bypasses both safety checks when an upstream restructure is intentional.
+- `scripts/init-user.ps1`: **Instructions support** — new `-Instructions` / `-SkipInstructions` parameters; interactive picker installs `.instructions.md` files to `%APPDATA%\Code\User\prompts\`. Only general-purpose (tech-agnostic) items are starred ★ using the same `Measure-GeneralRelevance` scoring as agents. Extended `$GeneralPositiveSegments` with `refactor`, `remember`, `accessibility`, `a11y`, `performance`, `owasp`.
+- `scripts/init-user.ps1`: **Skills support** — new `-Skills` / `-SkipSkills` / `-SkillsDir` parameters; interactive picker installs skill directories to `~/.copilot/skills/`. New `Build-UserSkillsCatalogue`, `Get-DirHash`, `Install-Directory`, `Remove-Directory` helpers. Full install/update/remove lifecycle tracked in `user-subscriptions.json` with `type: directory` entries.
+- `scripts/update-user.ps1`: `-SkillsDir` parameter; `Get-DirHash` helper; destination routing by subscription `type` field (`directory` → `$SkillsDir`, `file` → `$PromptsDir`); directory-type subscriptions mirrored file-by-file on update.
+- `scripts/init-repo.ps1`: **`[U]` status indicator** — agents and instructions now show `[U]` in the OGV Status column and console menu when the item is already installed at user level (`$UserPromptsDir`). New `-UserPromptsDir` parameter (defaults to `%APPDATA%\Code\User\prompts`). `[U]` is additive — combines with `[*]`, `[↑]`, `[~]`, `[!]`.
+
+### Changed
+
+- `scripts/init-user.ps1`: header, validation log, and summary updated to reflect three resource categories and two destination directories.
+- `README.md`: updated `init-user.ps1` section with three-location table, new parameters, and usage examples; updated `update-user.ps1` section with `-SkillsDir` param; added `[U]` entry and clarifying tip to the symbol table.
 
 ### Identified (not yet extracted)
 
 - **Shared helper duplication** — `Log`, `Show-OGV`, `Get-DirHash`, `Get-Description`, `Install-File`, `Remove-File`, `Test-RequiresSetup`, and the subscription upsert/remove pattern are defined independently in multiple scripts (`init-repo.ps1`, `init-user.ps1`, `update-repo.ps1`, `update-user.ps1`). Planned fix: extract to a dot-sourced `scripts/Common.ps1` in a follow-up PR.
+
+### Testing
+
+- `sync-awesome-copilot.ps1 -Plan` — exits cleanly; structural/mass-removal checks correctly bypass in plan mode.
+- Structural check verified by temporarily renaming `agents/` from the cache: `STRUCTURAL CHANGE DETECTED` fires with correct missing-folder output.
+- Mass-removal check verified by inflating manifest item count 5×: `MASS-REMOVAL DETECTED` fires at 80% removal ratio; `-Force` bypasses and restores a clean manifest.
+- `init-user.ps1 -DryRun -Agents gem-reviewer -Instructions security-and-owasp -Skills refactor` — all three categories resolve; agent reports unchanged (already installed), instruction and skill report would-add.
+- `init-user.ps1 -DryRun -Uninstall -SkipAgents -SkipInstructions` — correctly reports no script-managed skills to remove.
+- `update-user.ps1 -DryRun` — reads 67 existing agent subscriptions; `Skills dir` shown in header; all report current.
+- `[U]` flag: inline script confirms 67 of 203 agents have `UserInstalled = true`, matching existing user subscriptions; 4 have `AlreadyInstalled = true` (repo-installed).
 
 ## [1.2.2] - 2026-02-27
 
