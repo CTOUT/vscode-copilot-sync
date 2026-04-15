@@ -1,19 +1,27 @@
 <#
 Initialize User-Level Copilot Resources
 
-Installs Copilot agents into VS Code's user-level prompts folder,
-making them available across all repos and VS Code windows — no .github/ needed.
+Installs agents, instructions, and skills into user-level VS Code and Copilot
+locations, making them available across all repos and VS Code windows — no .github/ needed.
 
-  Agents --> %APPDATA%\Code\User\prompts\*.agent.md
+  Agents       --> %APPDATA%\Code\User\prompts\*.agent.md
+  Instructions --> %APPDATA%\Code\User\prompts\*.instructions.md
+  Skills       --> ~/.copilot/skills/<skill-name>/
 
 Subscription manifest stored at: ~/.awesome-copilot/user-subscriptions.json
 
 Usage:
-  # Interactive
+  # Interactive (agents + instructions + skills)
   .\init-user.ps1
 
-  # Non-interactive: specify agents by name (comma-separated)
+  # Non-interactive: specify by name (comma-separated)
   .\init-user.ps1 -Agents "beastmode,se-security-reviewer"
+  .\init-user.ps1 -Instructions "security-and-owasp,markdown-accessibility"
+  .\init-user.ps1 -Skills "refactor,create-readme"
+
+  # Skip specific categories
+  .\init-user.ps1 -SkipSkills
+  .\init-user.ps1 -SkipAgents -SkipInstructions
 
   # Target a non-default VS Code installation (e.g. Insiders)
   .\init-user.ps1 -PromptsDir "$env:APPDATA\Code - Insiders\User\prompts"
@@ -21,24 +29,32 @@ Usage:
   # Dry run - show what would be installed
   .\init-user.ps1 -DryRun
 
-  # Remove installed user-level agents
+  # Remove installed user-level resources
   .\init-user.ps1 -Uninstall
 
 Notes:
   - Files are only overwritten if the source is newer/different.
-  - The prompts folder is created if it doesn't exist.
+  - The prompts folder and skills folder are created if they don't exist.
   - A subscription manifest (user-subscriptions.json) is written to the cache
     folder (~/.awesome-copilot/). Run update-user.ps1 to check for upstream changes.
   - The selection UI uses Out-GridView where available (Windows GUI, filterable,
     multi-select). Falls back to a numbered console menu automatically.
-  - Only script-managed agents (recorded in user-subscriptions.json) are offered
+  - Only script-managed resources (recorded in user-subscriptions.json) are offered
     for removal — user-created files are never touched.
+  - Only general-purpose (tech-agnostic) items are starred ★ in the picker.
+    Tech-specific items (e.g. azure-, python-, react-) are still available but
+    not pre-marked as recommended.
 #>
 [CmdletBinding()] param(
-    [string]$SourceRoot = "$HOME/.awesome-copilot",
-    [string]$PromptsDir = "$env:APPDATA\Code\User\prompts",
-    [string]$Agents     = '',   # Comma-separated names to pre-select (non-interactive)
+    [string]$SourceRoot   = "$HOME/.awesome-copilot",
+    [string]$PromptsDir   = "$env:APPDATA\Code\User\prompts",
+    [string]$SkillsDir    = "$HOME/.copilot/skills",
+    [string]$Agents       = '',   # Comma-separated names to pre-select (non-interactive)
+    [string]$Instructions = '',
+    [string]$Skills       = '',
     [switch]$SkipAgents,
+    [switch]$SkipInstructions,
+    [switch]$SkipSkills,
     [switch]$DryRun,
     [switch]$Uninstall  # Show a picker of installed items to remove instead of installing
 )
@@ -75,6 +91,7 @@ if (-not (Test-Path $SourceRoot)) {
 }
 
 Log "VS Code user prompts : $PromptsDir"
+Log "Copilot skills dir   : $SkillsDir"
 Log "Copilot cache        : $SourceRoot"
 
 #endregion # Validation
@@ -116,6 +133,47 @@ function Remove-File {
     param([string]$FilePath)
     if ($DryRun) { return 'would-remove' }
     if (Test-Path $FilePath) { Remove-Item $FilePath -Force; return 'removed' }
+    return 'not-found'
+}
+
+function Get-DirHash([string]$DirPath) {
+    $hashes   = Get-ChildItem $DirPath -Recurse -File | Sort-Object FullName |
+                ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash }
+    $combined = $hashes -join '|'
+    $bytes    = [System.Text.Encoding]::UTF8.GetBytes($combined)
+    $stream   = [System.IO.MemoryStream]::new($bytes)
+    return (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash
+}
+
+function Install-Directory {
+    param([string]$SrcDir, [string]$DestParent)
+    $name    = Split-Path $SrcDir -Leaf
+    $destDir = Join-Path $DestParent $name
+    if (-not $DryRun -and -not (Test-Path $destDir)) {
+        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+    }
+    $added = 0; $updated = 0; $unchanged = 0
+    Get-ChildItem $SrcDir -File -Recurse | ForEach-Object {
+        $rel      = $_.FullName.Substring($SrcDir.Length).TrimStart('\','/')
+        $dest     = Join-Path $destDir $rel
+        $destDir2 = Split-Path $dest -Parent
+        if (-not $DryRun -and -not (Test-Path $destDir2)) {
+            New-Item -ItemType Directory -Path $destDir2 -Force | Out-Null
+        }
+        $srcHash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+        $dstHash = if (Test-Path $dest) { (Get-FileHash $dest -Algorithm SHA256).Hash } else { $null }
+        if ($srcHash -ne $dstHash) {
+            if (-not $DryRun) { Copy-Item $_.FullName $dest -Force }
+            if ($dstHash) { $updated++ } else { $added++ }
+        } else { $unchanged++ }
+    }
+    return [pscustomobject]@{ Added = $added; Updated = $updated; Unchanged = $unchanged }
+}
+
+function Remove-Directory {
+    param([string]$DirPath)
+    if ($DryRun) { return 'would-remove' }
+    if (Test-Path $DirPath) { Remove-Item $DirPath -Recurse -Force; return 'removed' }
     return 'not-found'
 }
 
@@ -221,11 +279,15 @@ $script:GeneralPositiveSegments = @(
     'plan','planner','blueprint','adr','specification','architect','architecture',
     'implementation','task','research','researcher','spike','feature',
     # Language-agnostic engineering practices
-    'tdd','devops','swe','qa','security','responsible','governance',
+    'tdd','devops','swe','qa','security','responsible','governance','owasp',
     # Code quality & process
-    'janitor','refine','debt','remediation','tour','simplifier',
+    'janitor','refine','refactor','debt','remediation','tour','simplifier',
     # Writing & docs
     'writer','documentation',
+    # Accessibility & quality standards
+    'accessibility','a11y','performance',
+    # Memory / cross-session
+    'remember',
     # Understanding / learning
     'understand','understanding',
     # Polyglot / language-agnostic testing
@@ -311,6 +373,42 @@ function Build-UserCatalogue([string]$CatDir, [string]$Pattern, [string]$Categor
             FileName         = $_.Name
             FullPath         = $_.FullName
             Description      = Get-Description $_.FullName
+            RequiresSetup    = Test-RequiresSetup $_.FullName
+            IsRecommended    = $isRec
+            AlreadyInstalled = $installed
+            ManagedByScript  = $managedByScript
+            UpdateAvailable  = $updateAvailable
+            LocallyModified  = $locallyModified
+        }
+    } | Sort-Object Name
+}
+
+function Build-UserSkillsCatalogue {
+    $catDir = Join-Path $SourceRoot 'skills'
+    if (-not (Test-Path $catDir)) { return @() }
+    Get-ChildItem $catDir -Directory | ForEach-Object {
+        $destSubdir      = Join-Path $SkillsDir $_.Name
+        $readmePath      = Join-Path $_.FullName 'README.md'
+        if (-not (Test-Path $readmePath)) { $readmePath = Join-Path $_.FullName 'SKILL.md' }
+        $subKey          = "skills|$($_.Name)"
+        $subEntry        = $script:UserSubIndex[$subKey]
+        $installed       = Test-Path $destSubdir
+        $updateAvailable = $false
+        $locallyModified = $false
+        $managedByScript = $null -ne $subEntry
+
+        if ($installed -and $subEntry) {
+            $srcHash         = Get-DirHash $_.FullName
+            $currentHash     = Get-DirHash $destSubdir
+            $locallyModified = $currentHash -ne $subEntry.hashAtInstall
+            $updateAvailable = $srcHash -ne $currentHash
+        }
+
+        $isRec = (-not (Test-RequiresSetup $_.FullName)) -and ((Measure-GeneralRelevance $_.Name) -ge 2)
+        [pscustomobject]@{
+            Name             = $_.Name
+            FullPath         = $_.FullName
+            Description      = if (Test-Path $readmePath) { Get-Description $readmePath } else { '' }
             RequiresSetup    = Test-RequiresSetup $_.FullName
             IsRecommended    = $isRec
             AlreadyInstalled = $installed
@@ -511,6 +609,84 @@ if (-not $SkipAgents) {
 
 #endregion # Agents
 
+#region Instructions
+if (-not $SkipInstructions) {
+    Log "Loading instructions catalogue..."
+    $catInstructions = Build-UserCatalogue (Join-Path $SourceRoot 'instructions') '\.instructions\.md$' 'instructions'
+
+    if ($Uninstall) {
+        $toRemove = Select-UserToRemove -Category 'Instructions' -Items $catInstructions
+        foreach ($item in $toRemove) {
+            $result = Remove-File -FilePath (Join-Path $PromptsDir $item.FileName)
+            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+            Log "$verb  user instruction: $($item.FileName)"
+        }
+        if ($toRemove.Count -gt 0) {
+            Remove-UserSubscriptionEntries -ManifestPath $UserManifestPath -Keys @($toRemove | ForEach-Object { "instructions|$($_.Name)" })
+        }
+    } else {
+        $selected = Select-UserItems -Category 'Instructions' -Items $catInstructions -PreSelected $Instructions
+
+        foreach ($item in $selected) {
+            $result = Install-File -Src $item.FullPath -DestDir $PromptsDir
+            $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
+            Log "$verb  user instruction: $($item.FileName)"
+            if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
+
+            $script:UserSubscriptionEntries.Add([pscustomobject]@{
+                name          = $item.Name
+                category      = 'instructions'
+                type          = 'file'
+                fileName      = $item.FileName
+                sourceRelPath = "instructions/$($item.FileName)"
+                hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
+                installedAt   = (Get-Date).ToString('o')
+            })
+        }
+    }
+}
+
+#endregion # Instructions
+
+#region Skills
+if (-not $SkipSkills) {
+    Log "Loading skills catalogue..."
+    $catSkills = Build-UserSkillsCatalogue
+
+    if ($Uninstall) {
+        $toRemove = Select-UserToRemove -Category 'Skills' -Items $catSkills
+        foreach ($item in $toRemove) {
+            $result = Remove-Directory -DirPath (Join-Path $SkillsDir $item.Name)
+            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+            Log "$verb  user skill: $($item.Name)"
+        }
+        if ($toRemove.Count -gt 0) {
+            Remove-UserSubscriptionEntries -ManifestPath $UserManifestPath -Keys @($toRemove | ForEach-Object { "skills|$($_.Name)" })
+        }
+    } else {
+        $selected = Select-UserItems -Category 'Skills' -Items $catSkills -PreSelected $Skills
+
+        foreach ($item in $selected) {
+            $r    = Install-Directory -SrcDir $item.FullPath -DestParent $SkillsDir
+            $verb = if ($DryRun) { '~ DryRun' } else { '✓ Installed' }
+            Log "$verb  user skill: $($item.Name) (added=$($r.Added) updated=$($r.Updated) unchanged=$($r.Unchanged))"
+            if (-not $DryRun) { $totalInstalled++ }
+
+            $script:UserSubscriptionEntries.Add([pscustomobject]@{
+                name          = $item.Name
+                category      = 'skills'
+                type          = 'directory'
+                dirName       = $item.Name
+                sourceRelPath = "skills/$($item.Name)"
+                hashAtInstall = Get-DirHash $item.FullPath
+                installedAt   = (Get-Date).ToString('o')
+            })
+        }
+    }
+}
+
+#endregion # Skills
+
 #region Summary
 if ($script:UserSubscriptionEntries.Count -gt 0) {
     Update-UserSubscriptions -ManifestPath $UserManifestPath -NewEntries $script:UserSubscriptionEntries.ToArray()
@@ -522,11 +698,16 @@ if ($Uninstall) {
 } elseif ($DryRun) {
     Log "Dry run complete. Re-run without -DryRun to apply." 'WARN'
 } else {
-    Log "$totalInstalled user-level resource(s) installed/updated in $PromptsDir" 'SUCCESS'
+    Log "$totalInstalled user-level resource(s) installed/updated." 'SUCCESS'
     if ($totalInstalled -gt 0) {
-        Log "Agents are now available in all VS Code windows — no .github/ needed."
+        if (-not $SkipAgents -or -not $SkipInstructions) {
+            Log "Agents and instructions are available in all VS Code windows: $PromptsDir"
+        }
+        if (-not $SkipSkills) {
+            Log "Skills are available at: $SkillsDir"
+        }
     }
-    Log "Tip: run init-user.ps1 -Uninstall to remove user-level agents."
+    Log "Tip: run init-user.ps1 -Uninstall to remove user-level resources."
     Log "Tip: run update-user.ps1 to check for and apply upstream changes."
 }
 #endregion # Summary

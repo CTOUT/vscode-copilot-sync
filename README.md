@@ -76,6 +76,8 @@ The picker auto-detects your language/framework and marks relevant items with �
 | `[U]`  | Already installed at user level (globally) |
 | `[!]`  | Requires additional setup (MCP server, API key, etc.) |
 
+> **Tip:** `[U]` items are already available everywhere via `init-user.ps1`. You can still install them repo-level if you want them committed to `.github/`.
+
 ### 4. Remove Installed Resources
 
 ```powershell
@@ -184,19 +186,29 @@ Reads `.github/.copilot-subscriptions.json` and applies any upstream changes fro
 
 ---
 
-### `scripts/init-user.ps1` — Configure user-level agents
+### `scripts/init-user.ps1` — Configure user-level resources
 
-Installs agents into VS Code's user-level prompts folder (`%APPDATA%\Code\User\prompts\`), making them available across **all repos and VS Code windows** — no `.github/` needed.
+Installs agents, instructions, and skills into user-level locations, making them available across **all repos and VS Code windows** — no `.github/` needed.
 
-This is ideal for general-purpose agents (e.g. "beastmode" focused modes, code reviewers, rubber-duck agents) that have no meaningful relationship to a specific project's language or stack.
+| Resource | Location |
+| --- | --- |
+| Agents | `%APPDATA%\Code\User\prompts\*.agent.md` |
+| Instructions | `%APPDATA%\Code\User\prompts\*.instructions.md` |
+| Skills | `~/.copilot/skills/<name>/` |
+
+This is ideal for general-purpose, tech-agnostic resources you always want active (e.g. security standards, accessibility guidelines, cross-cutting agents). Tech-specific items are still available in the picker but not pre-starred.
 
 **Full lifecycle** — install, update, and remove, tracked in `~/.awesome-copilot/user-subscriptions.json`.
 
 ```powershell
-.\scripts\init-user.ps1                              # Interactive
+.\scripts\init-user.ps1                              # Interactive (agents + instructions + skills)
 .\scripts\init-user.ps1 -DryRun                      # Preview
-.\scripts\init-user.ps1 -Uninstall                   # Remove user-level agents
+.\scripts\init-user.ps1 -Uninstall                   # Remove user-level resources
+.\scripts\init-user.ps1 -SkipSkills                  # Agents + instructions only
+.\scripts\init-user.ps1 -SkipAgents -SkipInstructions  # Skills only
 .\scripts\init-user.ps1 -Agents "beastmode,se-security-reviewer"
+.\scripts\init-user.ps1 -Instructions "security-and-owasp,markdown-accessibility"
+.\scripts\init-user.ps1 -Skills "refactor,create-readme"
 
 # Non-default VS Code installations
 .\scripts\init-user.ps1 -PromptsDir "$env:APPDATA\Code - Insiders\User\prompts"
@@ -204,14 +216,15 @@ This is ideal for general-purpose agents (e.g. "beastmode" focused modes, code r
 
 ---
 
-### `scripts/update-user.ps1` — Apply upstream updates to user-level agents
+### `scripts/update-user.ps1` — Apply upstream updates to user-level resources
 
-Reads `~/.awesome-copilot/user-subscriptions.json` and refreshes installed user-level agents from the local cache.
+Reads `~/.awesome-copilot/user-subscriptions.json` and refreshes installed user-level agents, instructions, and skills from the local cache.
 
 ```powershell
 .\scripts\update-user.ps1                    # Interactive
 .\scripts\update-user.ps1 -DryRun           # Show what would change
 .\scripts\update-user.ps1 -Force            # Apply all without prompting
+.\scripts\update-user.ps1 -SkillsDir "~/custom/skills"  # Non-default skills location
 ```
 
 ## 🔧 Configuration

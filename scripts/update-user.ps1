@@ -2,8 +2,13 @@
 Update Subscribed User-Level Copilot Resources
 
 Reads the user subscription manifest (~/.awesome-copilot/user-subscriptions.json)
-written by init-user.ps1, compares each subscribed agent against the local
+written by init-user.ps1, compares each subscribed resource against the local
 awesome-copilot cache, and applies any upstream updates.
+
+Handles all three user-level resource types:
+  Agents       -- %APPDATA%\Code\User\prompts\*.agent.md
+  Instructions -- %APPDATA%\Code\User\prompts\*.instructions.md
+  Skills       -- ~/.copilot/skills/<skill-name>/
 
 Usage:
   # Check for and apply updates (interactive prompt)
@@ -21,7 +26,7 @@ Usage:
 Notes:
   - Only resources present in user-subscriptions.json are checked.
     Run init-user.ps1 to add new subscriptions.
-  - Resources whose destination file has been manually deleted are
+  - Resources whose destination file/directory has been manually deleted are
     skipped (treated as intentionally removed).
   - The subscription manifest is updated with new hashes after each successful update.
   - Requires the local awesome-copilot cache (~/.awesome-copilot/). Run
@@ -30,6 +35,7 @@ Notes:
 [CmdletBinding()] param(
     [string]$SourceRoot = "$HOME/.awesome-copilot",
     [string]$PromptsDir = "$env:APPDATA\Code\User\prompts",
+    [string]$SkillsDir  = "$HOME/.copilot/skills",
     [switch]$Force,
     [switch]$DryRun
 )
@@ -41,6 +47,15 @@ function Log($m, [string]$level = 'INFO') {
     $ts = (Get-Date).ToString('s')
     $color = switch ($level) { 'ERROR' { 'Red' } 'WARN' { 'Yellow' } 'SUCCESS' { 'Green' } default { 'Cyan' } }
     Write-Host "[$ts][$level] $m" -ForegroundColor $color
+}
+
+function Get-DirHash([string]$DirPath) {
+    $hashes   = Get-ChildItem $DirPath -Recurse -File | Sort-Object FullName |
+                ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash }
+    $combined = $hashes -join '|'
+    $bytes    = [System.Text.Encoding]::UTF8.GetBytes($combined)
+    $stream   = [System.IO.MemoryStream]::new($bytes)
+    return (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash
 }
 
 #endregion # Initialisation
@@ -67,6 +82,7 @@ if (-not (Test-Path $SourceRoot)) {
 Log "Checking $($subs.Count) user-level resource(s) for upstream changes..."
 Log "Cache      : $SourceRoot"
 Log "Prompts dir: $PromptsDir"
+Log "Skills dir : $SkillsDir"
 
 #endregion # Load subscriptions
 
@@ -81,14 +97,23 @@ foreach ($sub in $subs) {
         continue
     }
 
-    $destPath = Join-Path $PromptsDir $sub.fileName
+    # Route destination by category: skills → SkillsDir, everything else → PromptsDir
+    $destPath = if ($sub.type -eq 'directory') {
+        Join-Path $SkillsDir $sub.dirName
+    } else {
+        Join-Path $PromptsDir $sub.fileName
+    }
 
     if (-not (Test-Path $destPath)) {
-        Log "= Skipping $($sub.name) ($($sub.category)) — removed from user prompts folder."
+        Log "= Skipping $($sub.name) ($($sub.category)) — removed from destination folder."
         continue
     }
 
-    $currentHash = (Get-FileHash $sourcePath -Algorithm SHA256).Hash
+    $currentHash = if ($sub.type -eq 'file') {
+        (Get-FileHash $sourcePath -Algorithm SHA256).Hash
+    } else {
+        Get-DirHash $sourcePath
+    }
 
     if ($currentHash -ne $sub.hashAtInstall) {
         $stale.Add([pscustomobject]@{
@@ -134,9 +159,20 @@ $updated = 0
 foreach ($item in $stale) {
     $sub = $item.Sub
     try {
-        $destDir = Split-Path $item.DestPath -Parent
-        if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-        Copy-Item $item.SourcePath $item.DestPath -Force
+        if ($sub.type -eq 'file') {
+            $destDir = Split-Path $item.DestPath -Parent
+            if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+            Copy-Item $item.SourcePath $item.DestPath -Force
+        } else {
+            # Mirror all files from the source directory into the destination
+            Get-ChildItem $item.SourcePath -File -Recurse | ForEach-Object {
+                $rel     = $_.FullName.Substring($item.SourcePath.Length).TrimStart('\', '/')
+                $dest    = Join-Path $item.DestPath $rel
+                $destDir = Split-Path $dest -Parent
+                if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+                Copy-Item $_.FullName $dest -Force
+            }
+        }
         $sub | Add-Member -NotePropertyName 'hashAtInstall' -NotePropertyValue $item.CurrentHash       -Force
         $sub | Add-Member -NotePropertyName 'installedAt'   -NotePropertyValue (Get-Date).ToString('o') -Force
         Log "✓ Updated: $($sub.name) ($($sub.category))"
@@ -152,6 +188,8 @@ $manifest | Add-Member -NotePropertyName 'subscriptions' -NotePropertyValue $sub
 $manifest | ConvertTo-Json -Depth 5 | Set-Content $ManifestPath -Encoding UTF8
 
 Write-Host ""
-Log "$updated user-level resource(s) updated in $PromptsDir" 'SUCCESS'
+Log "$updated user-level resource(s) updated." 'SUCCESS'
+Log "Prompts : $PromptsDir"
+Log "Skills  : $SkillsDir"
 
 #endregion # Apply updates
