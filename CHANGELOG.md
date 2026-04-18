@@ -171,25 +171,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## Future Plans
-
-### Planned Features
-
-- [ ] Configuration file support (YAML/JSON)
-- [ ] Backup and restore functionality
-- [ ] Conflict resolution UI for duplicate resources
-- [ ] Support for custom resource categories
-- [ ] Integration with other Copilot resource repositories
-- [ ] PowerShell module packaging
-- [ ] Cross-platform support (macOS, Linux)
-
-### Known Issues
-
-- Junction creation requires appropriate permissions on some systems
-- Scheduled task runs under user context (requires user to be logged in)
-
----
-
 **Note:** Version numbers follow [Semantic Versioning](https://semver.org/):
 
 - MAJOR version for incompatible API changes

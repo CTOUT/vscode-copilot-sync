@@ -22,3 +22,13 @@
 - Three approaches tried and failed: `SetForegroundWindow`, `keybd_event(Alt)`, `WScript.Shell.AppActivate` from runspace
 - Currently mitigated with a yellow hint message in the terminal
 - Possible alternative: investigate WinForms-based topmost picker as a drop-in replacement for `Out-GridView`
+
+### Configuration file support
+
+- Users currently configure everything via command-line parameters; there is no persistent config file
+- **Proposed approach:** YAML or JSON config file (e.g. `~/.awesome-copilot/config.yml`) storing preferred categories, default paths, and skip flags so they don't need to be passed on every run
+
+### PowerShell module packaging
+
+- Scripts are currently used by cloning this repo directly
+- **Proposed approach:** package as a PowerShell module published to the PowerShell Gallery (`Install-Module vscode-copilot-sync`); would remove the clone-and-path requirement and simplify updates
