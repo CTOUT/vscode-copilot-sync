@@ -257,6 +257,8 @@ $script:TechSpecificSegments = @(
     'amplitude','launchdarkly','comet','apify',
     'pagerduty','datadog','dynatrace','octopus','jfrog',
     'neon','diffblue','stackhawk','taxcore','cast',
+    # Microsoft product suite (Power Platform family + Flow Studio)
+    'power','flowstudio',
     # Databases & query engines
     'neo4j','elasticsearch','mongodb','postgres','postgresql','mysql','oracle','redis',
     'kusto','spark',
