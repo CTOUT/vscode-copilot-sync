@@ -263,7 +263,7 @@ $script:TechSpecificSegments = @(
     'neo4j','elasticsearch','mongodb','postgres','postgresql','mysql','oracle','redis',
     'kusto','spark',
     # Specific tooling
-    'playwright','linux','github','powerbi','mcp',
+    'playwright','linux','github','powerbi','powershell','mcp',
     # Versioned / compound tech names (react18, react19, vuejs, winui3, cpp...)
     'cpp','vuejs','winui3','react18','react19'
 )
