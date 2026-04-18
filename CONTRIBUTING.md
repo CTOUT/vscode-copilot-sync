@@ -7,16 +7,18 @@ Thank you for considering contributing to the VS Code Copilot Resource Sync Scri
 ### Reporting Bugs
 
 If you find a bug, please create an issue with:
+
 - Clear description of the problem
 - Steps to reproduce
 - Expected vs actual behavior
 - PowerShell version (`$PSVersionTable.PSVersion`)
 - Windows version
-- Relevant log files from `$HOME\.awesome-copilot\logs\`
+- Relevant log files from `scripts\logs\`
 
 ### Suggesting Enhancements
 
 Feature requests are welcome! Please include:
+
 - Clear use case description
 - Why this feature would be useful
 - Proposed implementation (if you have ideas)
@@ -25,6 +27,7 @@ Feature requests are welcome! Please include:
 
 1. **Fork the repository**
 2. **Create a feature branch** from `main`:
+
    ```powershell
    git checkout -b feature/your-feature-name
    ```
@@ -41,25 +44,30 @@ Feature requests are welcome! Please include:
    - Add inline comments for complex code
 
 5. **Test your changes**:
+
    ```powershell
+   # Full dry run (no files written)
+   .\configure.ps1 -DryRun
+
    # Test individual scripts
-   .\sync-awesome-copilot.ps1
-   .\combine-and-publish-prompts.ps1
-   
-   # Test scheduled task installation
-   .\install-scheduled-task.ps1 -Interval "1h"
-   Start-ScheduledTask -TaskName "AwesomeCopilotSync"
-   
+   .\scripts\sync-awesome-copilot.ps1 -Plan
+   .\scripts\init-user.ps1 -DryRun
+   .\scripts\init-repo.ps1 -DryRun
+   .\scripts\update-user.ps1 -DryRun
+   .\scripts\update-repo.ps1 -DryRun
+
    # Verify logs
-   Get-Content "$HOME\.awesome-copilot\logs\sync-*.log" -Tail 20
+   Get-ChildItem .\scripts\logs\sync-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content -Tail 20
    ```
 
 6. **Commit with clear messages**:
+
    ```powershell
    git commit -m "Add feature: description of what you added"
    ```
 
 7. **Push and create PR**:
+
    ```powershell
    git push origin feature/your-feature-name
    ```
@@ -73,36 +81,26 @@ Feature requests are welcome! Please include:
 - **Verbose parameter names**: Prefer clarity over brevity
 - **Comment complex logic**: Explain the "why", not the "what"
 - **Error handling**: Use `try/catch` for external operations
-- **Logging**: Use `Write-Host` with color coding for status messages
+- **Logging**: Use the `Log` helper (not `Write-Host` directly) — see Key Conventions in `.github/copilot-instructions.md`
 
-### Example:
+### Example
 
 ```powershell
 function Get-ResourceFiles {
-    <#
-    .SYNOPSIS
-    Retrieves resource files from a directory.
-    
-    .PARAMETER Path
-    The directory path to search.
-    
-    .PARAMETER Type
-    The type of resource to filter (chatmode, instruction, prompt).
-    #>
     param(
         [Parameter(Mandatory)]
         [string]$Path,
-        
-        [ValidateSet('chatmode', 'instruction', 'prompt')]
+
+        [ValidateSet('agent', 'instructions', 'workflow')]
         [string]$Type
     )
-    
+
     try {
         $pattern = "*.$Type.md"
         Get-ChildItem -Path $Path -Filter $pattern -File
     }
     catch {
-        Write-Host "[ERROR] Failed to get resource files: $_" -ForegroundColor Red
+        Log "Failed to get resource files: $_" 'ERROR'
         throw
     }
 }
@@ -135,16 +133,17 @@ Before submitting a PR, verify:
 - [ ] Scripts run without errors
 - [ ] No hardcoded personal paths
 - [ ] Portable paths using `$HOME` and `$env:APPDATA`
-- [ ] Logging works correctly
+- [ ] Logging works correctly (`Log` helper, not `Write-Host`)
 - [ ] Error handling covers edge cases
-- [ ] Scheduled task integration works
+- [ ] `-DryRun` / `-Plan` produces correct output without writing files
 - [ ] No breaking changes to existing functionality
 - [ ] Documentation updated
 - [ ] CHANGELOG.md updated
 
-## Questions?
+## Questions
 
 Feel free to:
+
 - Open an issue for discussion
 - Ask questions in pull request comments
 - Reach out to maintainers

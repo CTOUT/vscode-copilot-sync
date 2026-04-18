@@ -1,0 +1,15 @@
+{
+  // MD013: line-length — disabled for prose documentation.
+  // Long changelog entries and inline code in bullet points make 80-char
+  // wrapping impractical without harming readability.
+  "MD013": false,
+
+  // MD024: no-duplicate-heading — allow repeated headings (Added, Changed,
+  // Fixed) across different parent version headings in CHANGELOG.md.
+  // siblings_only: true flags only duplicates that share the same parent.
+  "MD024": { "siblings_only": true },
+
+  // MD060: table-column-style — disabled; pipe alignment is a stylistic
+  // preference and has no effect on rendered output or accessibility.
+  "MD060": false
+}

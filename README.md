@@ -1,297 +1,361 @@
-# VS Code Copilot Resource Sync Scripts
+# VS Code Copilot Resource Sync
 
-A collection of PowerShell scripts to automatically sync, combine, and publish [GitHub Copilot](https://github.com/features/copilot) resources from the [awesome-copilot](https://github.com/github/awesome-copilot) community repository to your local VS Code profiles.
+A collection of PowerShell scripts to sync and manage [GitHub Copilot](https://github.com/features/copilot) resources from the [awesome-copilot](https://github.com/github/awesome-copilot) community repository — cherry-picking exactly what each repo needs into `.github/`.
 
-## 🎯 What This Does
+## What This Does
 
-These scripts automate the management of VS Code Copilot custom instructions, chat modes, prompts, and collections by:
+1. **Syncs** the latest agents, instructions, hooks, workflows, and skills from [awesome-copilot](https://github.com/github/awesome-copilot) into a local cache (`~/.awesome-copilot/`)
+2. **Initialises repos** — intelligently recommends and installs resources into a repo's `.github/` folder based on detected language/framework, with full install/update/remove lifecycle management
 
-1. **Syncing** resources from the awesome-copilot GitHub repository
-2. **Combining** multiple resource categories into a unified structure
-3. **Publishing** to your VS Code profile(s) via symbolic links or file copies
-4. **Normalizing** file organization to prevent duplicates
-5. **Automating** the entire process via Windows Task Scheduler
+### What goes where
 
-## 📋 Prerequisites
+| Resource         | Location                |
+| ---------------- | ----------------------- |
+| **Agents**       | `.github/agents/`       |
+| **Instructions** | `.github/instructions/` |
+| **Hooks**        | `.github/hooks/<name>/` |
+| **Workflows**    | `.github/workflows/`    |
+| **Skills**       | `.github/skills/`       |
 
-- **Windows** with PowerShell 7+ ([Download here](https://github.com/PowerShell/PowerShell/releases))
-- **VS Code** with GitHub Copilot extension installed
-- **Internet connection** for GitHub API access
-- **Administrator privileges** (for creating scheduled tasks)
+## Prerequisites
 
-## 🚀 Quick Start
+- **Windows** with PowerShell 7+ ([Download PowerShell](https://github.com/PowerShell/PowerShell/releases))
+- **VS Code** with GitHub Copilot extension
+- **`gh` (GitHub CLI) or `git`** — `gh` preferred ([Download GitHub CLI](https://cli.github.com/)); handles auth automatically
+- **Internet connection** for initial sync
+
+## Quick Start
 
 ### 1. Clone or Download
 
 ```powershell
-# Clone this repository
 git clone <your-repo-url>
-cd scripts
+cd vscode-copilot-sync
 ```
 
-### 2. Run Initial Sync
+### 2. Run the Configurator
 
 ```powershell
-# Sync resources from GitHub
-.\sync-awesome-copilot.ps1
+# Sync from GitHub and optionally configure your current repo
+.\configure.ps1
 
-# Combine resources into unified folder
-.\combine-and-publish-prompts.ps1
+# Sync + go straight to install pickers (no Y/N prompt)
+.\configure.ps1 -Install
+
+# Sync only (no repo setup)
+.\configure.ps1 -SkipInit
+
+# Preview everything without writing any files
+.\configure.ps1 -DryRun
 ```
 
-### 3. Install Automated Sync (Optional)
+### 3. Configure a Repo
+
+Run from inside any repo to add agents, instructions, hooks, workflows and skills to `.github/`:
 
 ```powershell
-# Install scheduled task (runs every 4 hours by default)
-.\install-scheduled-task.ps1
+cd C:\Projects\my-app
+.\configure.ps1
 
-# Or customize the interval
-.\install-scheduled-task.ps1 -Interval "2h"  # Every 2 hours
-.\install-scheduled-task.ps1 -Interval "1d"  # Once daily
+# Or target a repo without cd-ing first
+.\configure.ps1 -SkipSync -RepoPath "C:\Projects\my-app"
+
+# Or call the script directly
+.\scripts\init-repo.ps1
+.\scripts\init-repo.ps1 -RepoPath "C:\Projects\my-app"
 ```
 
-## 📁 What Gets Created
+The picker auto-detects your language/framework and marks relevant items with ★. Items already installed show their status:
 
-```
-$HOME\.awesome-copilot\          # Local cache
-├── chatmodes\                   # Chat mode definitions
-├── instructions\                # Custom instructions
-├── prompts\                     # Prompt templates
-├── collections\                 # Resource collections
-├── combined\                    # Unified resources (all categories)
-└── manifest.json                # Sync state tracking
+| Symbol | Meaning                        |
+| ------ | ------------------------------ |
+| ★      | Recommended for this repo      |
+| `[*]`  | Already installed              |
+| `[↑]`  | Update available from upstream |
+| `[~]`  | Locally modified since install |
+| `[U]`  | Already installed at user level (globally) |
+| `[!]`  | Requires additional setup (MCP server, API key, etc.) |
 
-%APPDATA%\Code\User\             # VS Code global config
-└── prompts\                     # Junction/symlink to combined folder
+> **Tip:** `[U]` items are already available everywhere via `init-user.ps1`. You can still install them repo-level if you want them committed to `.github/`.
 
-%APPDATA%\Code\User\profiles\    # VS Code profiles
-└── <profile-name>\
-    ├── chatmodes\               # Linked/copied resources
-    ├── instructions\
-    └── prompts\
-```
+### 4. Remove Installed Resources
 
-## 📜 Scripts Overview
-
-### `sync-awesome-copilot.ps1`
-Syncs resources from the awesome-copilot GitHub repository.
-
-**Features:**
-- Downloads latest resources via GitHub API
-- SHA256 hash-based change detection
-- Incremental updates (only downloads changed files)
-- Manifest tracking for sync state
-- Optional GITHUB_TOKEN support for higher rate limits
-
-**Usage:**
 ```powershell
-.\sync-awesome-copilot.ps1
+# Interactive removal picker (only shows script-managed files — never user-created ones)
+.\configure.ps1 -Uninstall
+
+# Or directly
+.\scripts\init-repo.ps1 -Uninstall
 ```
 
-**Environment Variables:**
-- `GITHUB_TOKEN` (optional) - Personal access token for higher API rate limits
+Locally modified files are flagged with `[~]` before removal so you don't accidentally discard work.
+
+## Local Cache Structure
+
+```text
+~/.awesome-copilot/
+├── .git/                  # Git metadata (managed automatically)
+├── agents/                # *.agent.md
+├── instructions/          # *.instructions.md
+├── workflows/             # *.md
+├── hooks/                 # <hook-name>/ directories
+├── skills/                # <skill-name>/ directories
+└── manifest.json          # Sync state (hashes, timestamps, counts)
+```
+
+## Common Workflows
+
+### New machine setup
+
+Run this once after cloning the repo on a new machine. It syncs the cache, installs your preferred general-purpose resources globally, then sets up whichever repo you are currently working in.
+
+```powershell
+# 1. Sync the awesome-copilot cache
+.\scripts\sync-awesome-copilot.ps1
+
+# 2. Install agents, instructions, and skills you want active in every VS Code window
+.\scripts\init-user.ps1
+
+# 3. Configure the repo you are currently working in
+.\scripts\init-repo.ps1
+```
+
+After this, user-level resources are always active. Repo-level resources are committed to `.github/` and available to the whole team.
 
 ---
 
-### `combine-and-publish-prompts.ps1`
-Combines resources from all categories into a unified folder and publishes to VS Code.
+### Configuring a new repo
 
-**Features:**
-- Merges chatmodes, instructions, and prompts into single directory
-- Creates junction/symlink to VS Code prompts directory
-- Automatic fallback to file copy if linking fails
-- Preserves user-created custom files
+Run from inside any repo — or pass `-RepoPath` from anywhere. Language and framework are auto-detected; relevant items are pre-marked with ★.
 
-**Usage:**
 ```powershell
-.\combine-and-publish-prompts.ps1
+# From inside the repo
+cd C:\Projects\my-app
+.\path\to\vscode-copilot-sync\configure.ps1 -Install
 
-# Publish to specific profile
-.\combine-and-publish-prompts.ps1 -ProfileName "MyProfile"
+# Or target it directly without cd-ing
+.\configure.ps1 -Install -RepoPath "C:\Projects\my-app"
 
-# Publish to global VS Code config only
-.\combine-and-publish-prompts.ps1 -GlobalOnly
+# Preview first without writing anything
+.\configure.ps1 -Install -DryRun -RepoPath "C:\Projects\my-app"
+```
+
+`-Install` skips the "do you want to configure a repo?" prompt and goes straight to the pickers.
+
+---
+
+### Multi-repo strategy
+
+User-level resources (installed via `init-user.ps1`) are available in **every VS Code window automatically** — no `.github/` commit needed. Repo-level resources are scoped to a single project and are committed for the whole team.
+
+A practical split:
+
+| Use `init-user.ps1` for | Use `init-repo.ps1` for |
+| --- | --- |
+| General coding standards (security, accessibility, performance) | Framework-specific agents (e.g. `angular-expert`, `dotnet-expert`) |
+| Cross-cutting skills (`refactor`, `create-readme`) | Project-specific hooks and workflows |
+| Resources you always want, regardless of project | Resources the whole team should have in their repo |
+
+Items already installed at user level are shown with `[U]` in the repo picker — you can still install them repo-level if you want them committed, but it is not required.
+
+---
+
+### Keeping resources current
+
+Run this whenever you want to pull the latest upstream changes for both user-level and repo-level subscriptions.
+
+```powershell
+# 1. Pull the latest from awesome-copilot into the local cache
+.\scripts\sync-awesome-copilot.ps1
+
+# 2. Update user-level resources (agents, instructions, skills in %APPDATA% / ~/.copilot)
+.\scripts\update-user.ps1
+
+# 3. Update repo-level resources in the current repo
+.\scripts\update-repo.ps1
+
+# Or do all three non-interactively
+.\scripts\sync-awesome-copilot.ps1
+.\scripts\update-user.ps1 -Force
+.\scripts\update-repo.ps1 -Force
+```
+
+`update-repo.ps1` reads `.github/.copilot-subscriptions.json`; `update-user.ps1` reads `~/.awesome-copilot/user-subscriptions.json`. Only items you have previously installed are touched — nothing is added automatically.
+
+---
+
+## Scripts
+
+### `configure.ps1` — Main entry point
+
+Chains sync → user-level → repo init in one command.
+
+```powershell
+.\configure.ps1                                    # Full run (sync + both prompts)
+.\configure.ps1 -Install                          # Sync + go straight to repo pickers
+.\configure.ps1 -User                             # Sync + go straight to user-level picker
+.\configure.ps1 -SkipInit                         # Sync + user-level only
+.\configure.ps1 -SkipUser                         # Sync + repo only
+.\configure.ps1 -SkipSync                         # Repo init only (no sync)
+.\configure.ps1 -SkipSync -Uninstall              # Remove repo resources
+.\.configure.ps1 -UninstallUser                    # Remove user-level resources
+.\configure.ps1 -RepoPath "C:\Projects\my-app"   # Target specific repo
+.\configure.ps1 -DryRun                           # Preview all changes
 ```
 
 ---
 
-### `publish-to-vscode-profile.ps1`
-Publishes resources to VS Code profile(s) via symbolic links or copies.
+### `scripts/sync-awesome-copilot.ps1` — Sync cache
 
-**Features:**
-- Creates symbolic links (junctions) for efficient syncing
-- Automatic fallback to file copy
-- Supports multiple profiles or global config
+Clones (first run) or pulls (subsequent runs) `github/awesome-copilot` as a sparse git checkout.
 
-**Usage:**
+- Only downloads the categories you need (`agents`, `instructions`, `workflows`, `hooks`, `skills` by default)
+- SHA256 hash manifest tracks added/updated/removed counts across runs
+- Auto-recovers from merge conflicts in the local cache
+- Prefers `gh` CLI for auth; falls back to `git`
+
 ```powershell
-.\publish-to-vscode-profile.ps1
+.\scripts\sync-awesome-copilot.ps1                          # Sync all categories
+.\scripts\sync-awesome-copilot.ps1 -Plan                    # Dry run
+.\scripts\sync-awesome-copilot.ps1 -Categories "agents,instructions"
+.\scripts\sync-awesome-copilot.ps1 -GitTool git             # Force git
+.\scripts\sync-awesome-copilot.ps1 -Force                   # Skip safety checks
+```
 
-# Publish to specific profile
-.\publish-to-vscode-profile.ps1 -ProfileName "Work"
+**Breaking-change detection** — on subsequent syncs the script runs two safety checks and exits before writing the manifest if either triggers:
 
-# Publish to global config
-.\publish-to-vscode-profile.ps1 -GlobalOnly
+| Check | Trigger | Action |
+| --- | --- | --- |
+| Structural | A previously-synced category folder is absent after pull | `STRUCTURAL CHANGE DETECTED` — lists missing folders, exits 1 |
+| Mass-removal | ≥ 25 % of tracked files removed in one pull | `MASS-REMOVAL DETECTED` — shows ratio, exits 1 |
+
+Re-run with `-Force` once you have reviewed the upstream changes and confirmed the new structure is intentional.
+
+---
+
+### `scripts/init-repo.ps1` — Configure a repo
+
+Interactively selects and installs Copilot resources into `.github/`.
+
+**Smart recommendations** — scans repo files for language/framework signals (`.cs`, `package.json`, `go.mod`, `Dockerfile`, `.github/workflows/*.yml`, etc.) and pre-marks relevant items with ★. Falls back to an intent questionnaire for empty repos.
+
+**Full lifecycle** — install, update, and remove, all tracked in `.github/.copilot-subscriptions.json`.
+
+```powershell
+.\scripts\init-repo.ps1                                     # Interactive
+.\scripts\init-repo.ps1 -RepoPath "C:\Projects\my-app"
+.\scripts\init-repo.ps1 -DryRun                             # Preview
+.\scripts\init-repo.ps1 -Uninstall                          # Remove resources
+.\scripts\init-repo.ps1 -SkipHooks -SkipWorkflows           # Skip categories
+.\scripts\init-repo.ps1 -Agents "devops-expert,se-security-reviewer" -Instructions "powershell"
 ```
 
 ---
 
-### `normalize-copilot-folders.ps1`
-Cleans up misplaced or duplicated files in VS Code directories.
+### `scripts/update-repo.ps1` — Apply upstream updates
 
-**Features:**
-- Moves files to correct category folders based on suffix
-- Removes duplicate files (keeps newest version)
-- Handles renamed copies (file.1.md, chatmodes__file.md)
+Reads `.github/.copilot-subscriptions.json` and applies any upstream changes from the local cache to installed resources.
 
-**Usage:**
 ```powershell
-.\normalize-copilot-folders.ps1
+.\scripts\update-repo.ps1                    # Interactive — prompts per item
+.\scripts\update-repo.ps1 -DryRun           # Show what would change
+.\scripts\update-repo.ps1 -Force            # Apply all without prompting
+.\scripts\update-repo.ps1 -RepoPath "C:\Projects\my-app"
+```
 
-# Normalize specific profile
-.\normalize-copilot-folders.ps1 -ProfileName "MyProfile"
+> **Tip:** The `[↑]` column in `init-repo.ps1` shows update availability inline — run `update-repo.ps1` when you want to apply them all at once.
+
+---
+
+### `scripts/init-user.ps1` — Configure user-level resources
+
+Installs agents, instructions, and skills into user-level locations, making them available across **all repos and VS Code windows** — no `.github/` needed.
+
+| Resource | Location |
+| --- | --- |
+| Agents | `%APPDATA%\Code\User\prompts\*.agent.md` |
+| Instructions | `%APPDATA%\Code\User\prompts\*.instructions.md` |
+| Skills | `~/.copilot/skills/<name>/` |
+
+This is ideal for general-purpose, tech-agnostic resources you always want active (e.g. security standards, accessibility guidelines, cross-cutting agents). Tech-specific items are still available in the picker but not pre-starred.
+
+**Full lifecycle** — install, update, and remove, tracked in `~/.awesome-copilot/user-subscriptions.json`.
+
+```powershell
+.\scripts\init-user.ps1                              # Interactive (agents + instructions + skills)
+.\scripts\init-user.ps1 -DryRun                      # Preview
+.\scripts\init-user.ps1 -Uninstall                   # Remove user-level resources
+.\scripts\init-user.ps1 -SkipSkills                  # Agents + instructions only
+.\scripts\init-user.ps1 -SkipAgents -SkipInstructions  # Skills only
+.\scripts\init-user.ps1 -Agents "beastmode,se-security-reviewer"
+.\scripts\init-user.ps1 -Instructions "security-and-owasp,markdown-accessibility"
+.\scripts\init-user.ps1 -Skills "refactor,create-readme"
+
+# Non-default VS Code installations
+.\scripts\init-user.ps1 -PromptsDir "$env:APPDATA\Code - Insiders\User\prompts"
 ```
 
 ---
 
-### `install-scheduled-task.ps1`
-Creates a Windows scheduled task for automatic syncing.
+### `scripts/update-user.ps1` — Apply upstream updates to user-level resources
 
-**Features:**
-- Runs sync and combine scripts on a schedule
-- Default: every 4 hours
-- Customizable interval
-- Runs as current user (no SYSTEM account needed)
-
-**Usage:**
-```powershell
-# Install with default 4-hour interval
-.\install-scheduled-task.ps1
-
-# Custom intervals
-.\install-scheduled-task.ps1 -Interval "2h"   # Every 2 hours
-.\install-scheduled-task.ps1 -Interval "30m"  # Every 30 minutes
-.\install-scheduled-task.ps1 -Interval "1d"   # Once daily
-
-# Check task status
-Get-ScheduledTask -TaskName "AwesomeCopilotSync"
-```
-
-**Interval Format:**
-- `30m` - Minutes
-- `2h` - Hours
-- `1d` - Days
-
----
-
-### `uninstall-scheduled-task.ps1`
-Removes the scheduled task.
-
-**Usage:**
-```powershell
-.\uninstall-scheduled-task.ps1
-```
-
-## 🔧 Configuration
-
-### GitHub Rate Limits
-
-Without authentication, GitHub API allows 60 requests/hour. For heavy usage:
-
-1. Create a [Personal Access Token](https://github.com/settings/tokens) (no scopes needed for public repos)
-2. Set environment variable:
+Reads `~/.awesome-copilot/user-subscriptions.json` and refreshes installed user-level agents, instructions, and skills from the local cache.
 
 ```powershell
-# Temporary (current session)
-$env:GITHUB_TOKEN = "ghp_your_token_here"
-
-# Permanent (user environment)
-[Environment]::SetEnvironmentVariable("GITHUB_TOKEN", "ghp_your_token_here", "User")
+.\scripts\update-user.ps1                    # Interactive
+.\scripts\update-user.ps1 -DryRun           # Show what would change
+.\scripts\update-user.ps1 -Force            # Apply all without prompting
+.\scripts\update-user.ps1 -SkillsDir "~/custom/skills"  # Non-default skills location
 ```
+
+## Configuration
+
+### Authentication
+
+`gh` CLI is preferred — inherits from `gh auth login`, no extra setup. If only `git` is available, the public `github/awesome-copilot` repo requires no credentials. For private forks, configure git credentials as usual.
 
 ### Custom Source Repository
 
-By default, scripts sync from `github/awesome-copilot`. To use a different source:
+Edit two variables near the top of `scripts/sync-awesome-copilot.ps1`:
 
-Edit `sync-awesome-copilot.ps1` line 57:
 ```powershell
-$Repo = "your-username/your-repo"
+$RepoSlug = 'your-username/your-fork'
+$RepoUrl  = 'https://github.com/your-username/your-fork.git'
 ```
 
-## 🗂️ File Naming Conventions
+## Troubleshooting
 
-Resources follow naming patterns for automatic categorization:
+### Execution policy error
 
-- `*.chatmode.md` - Chat mode definitions
-- `*.instructions.md` - Custom instructions
-- `*.prompt.md` - Prompt templates
-- `*.collection.yml` - Resource collections
-
-Files without these suffixes in the combined folder are preserved (assumed to be user-created).
-
-## 🛠️ Troubleshooting
-
-### Scripts Not Running
 ```powershell
-# Check PowerShell version (must be 7+)
-$PSVersionTable.PSVersion
-
-# Set execution policy
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-### Junction/Symlink Fails
-Scripts automatically fall back to copying files. Check logs for details.
+### Sync fails with merge conflict
 
-### Scheduled Task Not Running
+The script auto-recovers (`git reset --hard origin/HEAD`). If it persists, delete `~/.awesome-copilot` and re-run — it will re-clone fresh.
+
+## Logs
+
+Sync logs are written to `scripts/logs/sync-YYYYMMDD-HHMMSS.log`:
+
 ```powershell
-# Check task status
-Get-ScheduledTask -TaskName "AwesomeCopilotSync" | Get-ScheduledTaskInfo
-
-# View logs
-Get-Content "$HOME\.awesome-copilot\logs\sync-*.log" -Tail 50
-
-# Manually run task
-Start-ScheduledTask -TaskName "AwesomeCopilotSync"
+Get-ChildItem .\scripts\logs\sync-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content
 ```
 
-### Files Not Appearing in VS Code
-1. Restart VS Code
-2. Check VS Code profile is correct: `Ctrl+Shift+P` → "Preferences: Show Profiles"
-3. Verify files exist in `%APPDATA%\Code\User\prompts\`
+## Contributing
 
-## 📊 Logs
+Contributions welcome! Fork, branch, test, PR.
 
-Sync logs are stored in `$HOME\.awesome-copilot\logs\`:
-```powershell
-# View latest sync log
-Get-Content "$HOME\.awesome-copilot\logs\sync-*.log" -Tail 20
-```
+## License
 
-Log format: `sync-YYYYMMDD-HHMMSS.log`
+MIT — see [LICENSE](LICENSE)
 
-## 🤝 Contributing
+## Acknowledgments
 
-Contributions welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Test your changes thoroughly
-4. Submit a pull request
-
-## 📄 License
-
-MIT License - See [LICENSE](LICENSE) file for details
-
-## 🙏 Acknowledgments
-
-- [awesome-copilot](https://github.com/github/awesome-copilot) - Community resource repository
-- [GitHub Copilot](https://github.com/features/copilot) - AI pair programmer
-
-## ⚠️ Disclaimer
-
-These scripts are community-maintained and not officially supported by GitHub or Microsoft. Use at your own risk. Always review synced content before using in production environments.
+- [awesome-copilot](https://github.com/github/awesome-copilot) — Community resource repository
+- [GitHub Copilot](https://github.com/features/copilot) — AI pair programmer
 
 ---
 
-**Made with ❤️ for the VS Code + Copilot community**
+Made with ❤️ for the VS Code + Copilot community
