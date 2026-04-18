@@ -2,7 +2,7 @@
 
 A collection of PowerShell scripts to sync and manage [GitHub Copilot](https://github.com/features/copilot) resources from the [awesome-copilot](https://github.com/github/awesome-copilot) community repository — cherry-picking exactly what each repo needs into `.github/`.
 
-## 🎯 What This Does
+## What This Does
 
 1. **Syncs** the latest agents, instructions, hooks, workflows, and skills from [awesome-copilot](https://github.com/github/awesome-copilot) into a local cache (`~/.awesome-copilot/`)
 2. **Initialises repos** — intelligently recommends and installs resources into a repo's `.github/` folder based on detected language/framework, with full install/update/remove lifecycle management
@@ -17,14 +17,14 @@ A collection of PowerShell scripts to sync and manage [GitHub Copilot](https://g
 | **Workflows**    | `.github/workflows/`    |
 | **Skills**       | `.github/skills/`       |
 
-## 📋 Prerequisites
+## Prerequisites
 
-- **Windows** with PowerShell 7+ ([Download](https://github.com/PowerShell/PowerShell/releases))
+- **Windows** with PowerShell 7+ ([Download PowerShell](https://github.com/PowerShell/PowerShell/releases))
 - **VS Code** with GitHub Copilot extension
-- **`gh` (GitHub CLI) or `git`** — `gh` preferred ([Download](https://cli.github.com/)); handles auth automatically
+- **`gh` (GitHub CLI) or `git`** — `gh` preferred ([Download GitHub CLI](https://cli.github.com/)); handles auth automatically
 - **Internet connection** for initial sync
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Clone or Download
 
@@ -90,9 +90,9 @@ The picker auto-detects your language/framework and marks relevant items with �
 
 Locally modified files are flagged with `[~]` before removal so you don't accidentally discard work.
 
-## 📁 Local Cache Structure
+## Local Cache Structure
 
-```
+```text
 ~/.awesome-copilot/
 ├── .git/                  # Git metadata (managed automatically)
 ├── agents/                # *.agent.md
@@ -103,7 +103,7 @@ Locally modified files are flagged with `[~]` before removal so you don't accide
 └── manifest.json          # Sync state (hashes, timestamps, counts)
 ```
 
-## 📜 Scripts
+## Scripts
 
 ### `configure.ps1` — Main entry point
 
@@ -117,7 +117,7 @@ Chains sync → user-level → repo init in one command.
 .\configure.ps1 -SkipUser                         # Sync + repo only
 .\configure.ps1 -SkipSync                         # Repo init only (no sync)
 .\configure.ps1 -SkipSync -Uninstall              # Remove repo resources
-.\configure.ps1 -UninstallUser                    # Remove user-level agents
+.\.configure.ps1 -UninstallUser                    # Remove user-level resources
 .\configure.ps1 -RepoPath "C:\Projects\my-app"   # Target specific repo
 .\configure.ps1 -DryRun                           # Preview all changes
 ```
@@ -227,7 +227,7 @@ Reads `~/.awesome-copilot/user-subscriptions.json` and refreshes installed user-
 .\scripts\update-user.ps1 -SkillsDir "~/custom/skills"  # Non-default skills location
 ```
 
-## 🔧 Configuration
+## Configuration
 
 ### Authentication
 
@@ -242,7 +242,7 @@ $RepoSlug = 'your-username/your-fork'
 $RepoUrl  = 'https://github.com/your-username/your-fork.git'
 ```
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 ### Execution policy error
 
@@ -254,7 +254,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 The script auto-recovers (`git reset --hard origin/HEAD`). If it persists, delete `~/.awesome-copilot` and re-run — it will re-clone fresh.
 
-## 📊 Logs
+## Logs
 
 Sync logs are written to `scripts/logs/sync-YYYYMMDD-HHMMSS.log`:
 
@@ -262,19 +262,19 @@ Sync logs are written to `scripts/logs/sync-YYYYMMDD-HHMMSS.log`:
 Get-ChildItem .\scripts\logs\sync-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content
 ```
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Fork, branch, test, PR.
 
-## 📄 License
+## License
 
 MIT — see [LICENSE](LICENSE)
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [awesome-copilot](https://github.com/github/awesome-copilot) — Community resource repository
 - [GitHub Copilot](https://github.com/features/copilot) — AI pair programmer
 
 ---
 
-**Made with ❤️ for the VS Code + Copilot community**
+Made with ❤️ for the VS Code + Copilot community

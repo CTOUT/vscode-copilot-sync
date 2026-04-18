@@ -45,7 +45,7 @@ function Write-Log {
     $ts   = (Get-Date).ToString('s')
     $line = "[$ts][$Level] $Message"
     if (-not $Quiet) { Write-Host $line }
-    Add-Content -Path $Global:LogFile -Value $line
+    Add-Content -Path $script:LogFile -Value $line
 }
 
 function Check-Timeout {
@@ -59,7 +59,7 @@ function Check-Timeout {
 $RunId  = (Get-Date -Format 'yyyyMMdd-HHmmss')
 $LogDir = Join-Path $PSScriptRoot 'logs'
 if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
-$Global:LogFile = Join-Path $LogDir "sync-$RunId.log"
+$script:LogFile = Join-Path $LogDir "sync-$RunId.log"
 
 Write-Log "Starting Awesome Copilot sync. Dest=$Dest Categories=$Categories"
 

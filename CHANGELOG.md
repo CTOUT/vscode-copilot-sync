@@ -14,8 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/sync-awesome-copilot.ps1`: `-Force` switch — bypasses both safety checks when an upstream restructure is intentional.
 - `scripts/init-user.ps1`: **Instructions support** — new `-Instructions` / `-SkipInstructions` parameters; interactive picker installs `.instructions.md` files to `%APPDATA%\Code\User\prompts\`. Only general-purpose (tech-agnostic) items are starred ★ using the same `Measure-GeneralRelevance` scoring as agents. Extended `$GeneralPositiveSegments` with `refactor`, `remember`, `accessibility`, `a11y`, `performance`, `owasp`.
 - `scripts/init-user.ps1`: **Skills support** — new `-Skills` / `-SkipSkills` / `-SkillsDir` parameters; interactive picker installs skill directories to `~/.copilot/skills/`. New `Build-UserSkillsCatalogue`, `Get-DirHash`, `Install-Directory`, `Remove-Directory` helpers. Full install/update/remove lifecycle tracked in `user-subscriptions.json` with `type: directory` entries.
+- `scripts/init-user.ps1`: **Trust warning** — displayed before the install pickers (not shown on `-Uninstall` or `-DryRun`). Reminds the user that resources written to `%APPDATA%\Code\User\prompts\` and `~/.copilot/skills/` are loaded by Copilot in all VS Code sessions.
 - `scripts/update-user.ps1`: `-SkillsDir` parameter; `Get-DirHash` helper; destination routing by subscription `type` field (`directory` → `$SkillsDir`, `file` → `$PromptsDir`); directory-type subscriptions mirrored file-by-file on update.
 - `scripts/init-repo.ps1`: **`[U]` status indicator** — agents and instructions now show `[U]` in the OGV Status column and console menu when the item is already installed at user level (`$UserPromptsDir`). New `-UserPromptsDir` parameter (defaults to `%APPDATA%\Code\User\prompts`). `[U]` is additive — combines with `[*]`, `[↑]`, `[~]`, `[!]`.
+
+### Fixed
+
+- `scripts/init-user.ps1`: Added `power`, `flowstudio`, and `powershell` to `$TechSpecificSegments`. `power-bi`, `power-platform`, `power-apps`, `power-automate`, `flowstudio`, and `powershell`-specific resources no longer receive a ★ recommendation in user-level pickers.
+- `scripts/init-repo.ps1`: Renamed `$input` → `$rawInput` in `Select-Items` and `Select-ToRemove` console-menu fallbacks. `$input` is PowerShell's automatic pipeline enumerator variable; shadowing it risks silent data loss in pipeline contexts.
+- `scripts/sync-awesome-copilot.ps1`: Changed `$Global:LogFile` to `$script:LogFile`. Global scope leaked the log path into the session, risking log corruption if two sync runs overlapped or another script reused the variable name.
 
 ### Changed
 
@@ -35,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `init-user.ps1 -DryRun -Uninstall -SkipAgents -SkipInstructions` — correctly reports no script-managed skills to remove.
 - `update-user.ps1 -DryRun` — reads 67 existing agent subscriptions; `Skills dir` shown in header; all report current.
 - `[U]` flag: inline script confirms 67 of 203 agents have `UserInstalled = true`, matching existing user subscriptions; 4 have `AlreadyInstalled = true` (repo-installed).
+- `power-bi`, `power-platform`, `flowstudio` confirmed blocked (return 0 from `Measure-GeneralRelevance`); `powershell` also confirmed blocked.
+- `init-repo.ps1 -DryRun` — `$rawInput` rename verified; no pipeline variable collision.
 
 ## [1.2.2] - 2026-02-27
 
@@ -77,9 +86,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `configure.ps1` — interactive orchestrator that chains sync → publish-global → init-repo; each step independently skippable via `-SkipSync`, `-SkipPublish`, `-SkipInit`; `-DryRun` passes through to all child scripts; shows last sync timestamp from cache manifest before running
-
-### Added
-
 - `init-repo.ps1`: added Agents as a fourth interactive category (installs to `.github/agents/`)
 - `init-repo.ps1`: `Detect-RepoStack` — auto-detects language/framework from file signals and marks relevant items with ★ in the picker
 - `init-repo.ps1`: `Prompt-RepoIntent` — interactive fallback for new/empty repos; asks language, project type, and concerns
@@ -95,19 +101,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `init-repo.ps1`: fixed OGV column name `[*] Installed` → `Installed` (special characters caused WPF binding errors at runtime)
 - `init-repo.ps1`: fixed `return if (...)` runtime error in `Install-File` — replaced with explicit `if/else` branches
 - `publish-global.ps1`: corrected agents target path to `%APPDATA%\Code\User\prompts\` (was incorrectly set to `agents\`)
+- `sync-awesome-copilot.ps1`: changed `$ErrorActionPreference` from `Inquire` to `Stop` — `Inquire` caused the script to hang waiting for interactive input when run as a scheduled task
 
 ### Changed
 
 - `publish-global.ps1`: updated inline comment from "CCA" to "VS Code Agent mode / Copilot CLI"
 - `README.md`: corrected all `-Interval` references to `-Every`; fixed `-ProfileName` → `-ProfileRoot`/`-AllProfiles`; updated agents path to `%APPDATA%\Code\User\prompts\`; updated `init-repo.ps1` section to reflect agents category and smart detection; fixed custom `-AgentsTarget` example path
 - `.github/copilot-instructions.md`: corrected agents path from `%APPDATA%\Code\User\agents\` to `%APPDATA%\Code\User\prompts\`
-
-### Fixed
-
-- `sync-awesome-copilot.ps1`: changed `$ErrorActionPreference` from `Inquire` to `Stop` — `Inquire` caused the script to hang waiting for interactive input when run as a scheduled task
-
-### Changed
-
 - `init-repo.ps1`: removed skills from per-repo initialisation; skills are globally available via `publish-global.ps1` (`~/.copilot/skills/`) and users should reference the source directly at [github/awesome-copilot](https://github.com/github/awesome-copilot) rather than committing point-in-time copies to repos
 
 ## [1.1.0] - 2026-02-26

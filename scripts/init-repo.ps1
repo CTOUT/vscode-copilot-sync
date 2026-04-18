@@ -361,13 +361,13 @@ function Select-Items {
     }
     Write-Host ""
     Write-Host "  Enter numbers to install (e.g. 1,3,5 or 1-3 or 'all' or blank to skip): " -NoNewline -ForegroundColor Yellow
-    $input = Read-Host
+    $rawInput = Read-Host
 
-    if (-not $input -or $input.Trim() -eq '') { return @() }
-    if ($input.Trim() -eq 'all') { return $Items }
+    if (-not $rawInput -or $rawInput.Trim() -eq '') { return @() }
+    if ($rawInput.Trim() -eq 'all') { return $Items }
 
     $indices = @()
-    foreach ($part in $input.Split(',')) {
+    foreach ($part in $rawInput.Split(',')) {
         $part = $part.Trim()
         if ($part -match '^(\d+)-(\d+)$') {
             $indices += ([int]$Matches[1])..[int]$Matches[2]
@@ -425,11 +425,11 @@ function Select-ToRemove {
     }
     Write-Host ""
     Write-Host "  Enter numbers to REMOVE (e.g. 1,3 or blank to skip): " -NoNewline -ForegroundColor Red
-    $input = Read-Host
-    if (-not $input -or $input.Trim() -eq '') { return @() }
+    $rawInput = Read-Host
+    if (-not $rawInput -or $rawInput.Trim() -eq '') { return @() }
 
     $indices = @()
-    foreach ($part in $input.Split(',')) {
+    foreach ($part in $rawInput.Split(',')) {
         $part = $part.Trim()
         if ($part -match '^(\d+)-(\d+)$') {
             $indices += ([int]$Matches[1])..[int]$Matches[2]

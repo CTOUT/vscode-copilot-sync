@@ -573,6 +573,14 @@ function Select-UserToRemove {
 $totalInstalled = 0
 $script:UserSubscriptionEntries = [System.Collections.Generic.List[object]]::new()
 
+if (-not $Uninstall) {
+    Write-Host ""
+    Write-Host "  ⚠  Resources installed to user-level locations are loaded by Copilot in ALL VS Code" -ForegroundColor Yellow
+    Write-Host "     sessions on this machine, regardless of which repo is open." -ForegroundColor Yellow
+    Write-Host "     Only install resources from sources you trust." -ForegroundColor DarkGray
+    Write-Host ""
+}
+
 if (-not $SkipAgents) {
     Log "Loading agents catalogue..."
     $catAgents = Build-UserCatalogue (Join-Path $SourceRoot 'agents') '\.agent\.md$' 'agents'
