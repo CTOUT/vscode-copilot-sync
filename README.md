@@ -19,10 +19,19 @@ A collection of PowerShell scripts to sync and manage [GitHub Copilot](https://g
 
 ## Prerequisites
 
-- **Windows** with PowerShell 7+ ([Download PowerShell](https://github.com/PowerShell/PowerShell/releases))
+- **PowerShell 7+** — runs on Windows, macOS, and Linux ([Download PowerShell](https://github.com/PowerShell/PowerShell/releases))
 - **VS Code** with GitHub Copilot extension
 - **`gh` (GitHub CLI) or `git`** — `gh` preferred ([Download GitHub CLI](https://cli.github.com/)); handles auth automatically
 - **Internet connection** for initial sync
+
+> **macOS / Linux:** the scripts are compatible with `pwsh` on all platforms. The one difference is the VS Code user directory path — pass `-PromptsDir` explicitly if `init-user.ps1` cannot locate it automatically:
+>
+> | Platform | `-PromptsDir` value |
+> | --- | --- |
+> | macOS | `~/Library/Application Support/Code/User/prompts` |
+> | Linux | `~/.config/Code/User/prompts` |
+>
+> `Out-GridView` is also Windows-only; the scripts fall back to a numbered console menu automatically on macOS and Linux.
 
 ## Quick Start
 
@@ -325,11 +334,13 @@ $RepoUrl  = 'https://github.com/your-username/your-fork.git'
 
 ## Troubleshooting
 
-### Execution policy error
+### Execution policy error (Windows only)
 
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
+
+This is a Windows-only restriction. macOS and Linux are unaffected.
 
 ### Sync fails with merge conflict
 

@@ -9,6 +9,13 @@
 - Root cause: generic language keywords match vendor-prefixed item names
 - **Proposed fix:** maintain a known vendor-prefix blocklist (`dataverse`, `salesforce`, `shopify`, `atlassian`, `pimcore`, `amplitude`, etc.). Items whose first segment is in the blocklist should not receive a name-match score from generic language keywords — only from an explicit vendor keyword detected in the repo.
 
+### Cross-platform: auto-detect VS Code user directory on macOS and Linux
+
+- `$env:APPDATA` is Windows-only; `init-user.ps1` and `update-user.ps1` default `-PromptsDir` to `$env:APPDATA\Code\User\prompts`
+- macOS path: `~/Library/Application Support/Code/User/prompts`
+- Linux path: `~/.config/Code/User/prompts`
+- **Proposed fix:** detect platform via `$IsWindows` / `$IsMacOS` / `$IsLinux` and set the default path accordingly; document in README (already done as a manual workaround note)
+
 ### OGV opens behind other windows
 
 - Windows UIPI prevents focus-stealing from background processes by design

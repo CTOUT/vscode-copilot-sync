@@ -12,7 +12,7 @@ If you find a bug, please create an issue with:
 - Steps to reproduce
 - Expected vs actual behavior
 - PowerShell version (`$PSVersionTable.PSVersion`)
-- Windows version
+- OS and version (`$PSVersionTable.OS`)
 - Relevant log files from `scripts\logs\`
 
 ### Suggesting Enhancements
