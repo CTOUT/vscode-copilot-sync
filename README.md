@@ -103,6 +103,87 @@ Locally modified files are flagged with `[~]` before removal so you don't accide
 └── manifest.json          # Sync state (hashes, timestamps, counts)
 ```
 
+## Common Workflows
+
+### New machine setup
+
+Run this once after cloning the repo on a new machine. It syncs the cache, installs your preferred general-purpose resources globally, then sets up whichever repo you are currently working in.
+
+```powershell
+# 1. Sync the awesome-copilot cache
+.\scripts\sync-awesome-copilot.ps1
+
+# 2. Install agents, instructions, and skills you want active in every VS Code window
+.\scripts\init-user.ps1
+
+# 3. Configure the repo you are currently working in
+.\scripts\init-repo.ps1
+```
+
+After this, user-level resources are always active. Repo-level resources are committed to `.github/` and available to the whole team.
+
+---
+
+### Configuring a new repo
+
+Run from inside any repo — or pass `-RepoPath` from anywhere. Language and framework are auto-detected; relevant items are pre-marked with ★.
+
+```powershell
+# From inside the repo
+cd C:\Projects\my-app
+.\path\to\vscode-copilot-sync\configure.ps1 -Install
+
+# Or target it directly without cd-ing
+.\configure.ps1 -Install -RepoPath "C:\Projects\my-app"
+
+# Preview first without writing anything
+.\configure.ps1 -Install -DryRun -RepoPath "C:\Projects\my-app"
+```
+
+`-Install` skips the "do you want to configure a repo?" prompt and goes straight to the pickers.
+
+---
+
+### Multi-repo strategy
+
+User-level resources (installed via `init-user.ps1`) are available in **every VS Code window automatically** — no `.github/` commit needed. Repo-level resources are scoped to a single project and are committed for the whole team.
+
+A practical split:
+
+| Use `init-user.ps1` for | Use `init-repo.ps1` for |
+| --- | --- |
+| General coding standards (security, accessibility, performance) | Framework-specific agents (e.g. `angular-expert`, `dotnet-expert`) |
+| Cross-cutting skills (`refactor`, `create-readme`) | Project-specific hooks and workflows |
+| Resources you always want, regardless of project | Resources the whole team should have in their repo |
+
+Items already installed at user level are shown with `[U]` in the repo picker — you can still install them repo-level if you want them committed, but it is not required.
+
+---
+
+### Keeping resources current
+
+Run this whenever you want to pull the latest upstream changes for both user-level and repo-level subscriptions.
+
+```powershell
+# 1. Pull the latest from awesome-copilot into the local cache
+.\scripts\sync-awesome-copilot.ps1
+
+# 2. Update user-level resources (agents, instructions, skills in %APPDATA% / ~/.copilot)
+.\scripts\update-user.ps1
+
+# 3. Update repo-level resources in the current repo
+.\scripts\update-repo.ps1
+
+# Or do all three non-interactively
+.\scripts\sync-awesome-copilot.ps1
+.\scripts\update-user.ps1 -Force
+.\scripts\update-repo.ps1 -Force
+```
+
+`update-repo.ps1` reads `.github/.copilot-subscriptions.json`; `update-user.ps1` reads `~/.awesome-copilot/user-subscriptions.json`. Only items you have previously installed are touched — nothing is added automatically.
+
+---
+
 ## Scripts
 
 ### `configure.ps1` — Main entry point
