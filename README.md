@@ -354,6 +354,38 @@ Sync logs are written to `scripts/logs/sync-YYYYMMDD-HHMMSS.log`:
 Get-ChildItem .\scripts\logs\sync-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content
 ```
 
+## FAQ
+
+**What is awesome-copilot?**
+[awesome-copilot](https://github.com/github/awesome-copilot) is the community-maintained catalogue of GitHub Copilot resources — agents, instructions, skills, hooks, and workflows contributed by hundreds of developers. vscode-copilot-sync makes it easy to cherry-pick and manage resources from that catalogue.
+
+**Does vscode-copilot-sync work on macOS and Linux?**
+Yes. All scripts run on PowerShell 7+ (`pwsh`), which is available for Windows, macOS, and Linux. The only Windows-specific feature is `Out-GridView`; on other platforms the scripts fall back to a numbered console menu automatically.
+
+**Will it overwrite files I've written myself?**
+No. The scripts only track and manage files they installed, recorded in `.github/.copilot-subscriptions.json`. User-created files are never touched. Locally modified files are flagged with `[~]` and require explicit confirmation before any update.
+
+**Do I need a GitHub account?**
+No account is needed to sync from the public `awesome-copilot` repository. The scripts use `gh` CLI if available but fall back to unauthenticated `git` for the public source.
+
+**How is this different from VS Code's built-in Settings Sync?**
+VS Code Settings Sync backs up editor settings and extensions. vscode-copilot-sync manages Copilot-specific resources (agents, instructions, skills) from the community catalogue — content that Settings Sync does not cover.
+
+**How often should I run the sync?**
+Run `.\configure.ps1` whenever you want to pull upstream additions. There is no scheduled sync — you decide when to update.
+
+---
+
+## Related Projects
+
+| Project | Description |
+| --- | --- |
+| [Symdicate](https://github.com/CTOUT/Symdicate) | Composable multi-agent framework for GitHub Copilot — persona grafting, cognitive identity caching, and agent fusion |
+| [ReFrame](https://github.com/CTOUT/ReFrame) | GitHub Copilot agent for PC game configuration optimisation — detects hardware and recommends targeted performance improvements |
+| [awesome-copilot](https://github.com/github/awesome-copilot) | The community catalogue that vscode-copilot-sync syncs from |
+
+---
+
 ## Contributing
 
 Contributions welcome! Fork, branch, test, PR.
