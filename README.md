@@ -1,6 +1,6 @@
 # VS Code Copilot Resource Sync
 
-A collection of PowerShell scripts to sync and manage [GitHub Copilot](https://github.com/features/copilot) resources from the [awesome-copilot](https://github.com/github/awesome-copilot) community repository — cherry-picking exactly what each repo needs into `.github/`.
+A PowerShell toolkit to sync, install, and manage [GitHub Copilot](https://github.com/features/copilot) agents, instructions, hooks, skills, and workflows from the [awesome-copilot](https://github.com/github/awesome-copilot) community catalogue — cherry-picking exactly what each repo needs, with full lifecycle management. Works on Windows, macOS, and Linux.
 
 ## What This Does
 
@@ -26,10 +26,10 @@ A collection of PowerShell scripts to sync and manage [GitHub Copilot](https://g
 
 > **macOS / Linux:** the scripts are compatible with `pwsh` on all platforms. The one difference is the VS Code user directory path — pass `-PromptsDir` explicitly if `init-user.ps1` cannot locate it automatically:
 >
-> | Platform | `-PromptsDir` value |
-> | --- | --- |
-> | macOS | `~/Library/Application Support/Code/User/prompts` |
-> | Linux | `~/.config/Code/User/prompts` |
+> | Platform | `-PromptsDir` value                               |
+> | -------- | ------------------------------------------------- |
+> | macOS    | `~/Library/Application Support/Code/User/prompts` |
+> | Linux    | `~/.config/Code/User/prompts`                     |
 >
 > `Out-GridView` is also Windows-only; the scripts fall back to a numbered console menu automatically on macOS and Linux.
 
@@ -76,13 +76,13 @@ cd C:\Projects\my-app
 
 The picker auto-detects your language/framework and marks relevant items with ★. Items already installed show their status:
 
-| Symbol | Meaning                        |
-| ------ | ------------------------------ |
-| ★      | Recommended for this repo      |
-| `[*]`  | Already installed              |
-| `[↑]`  | Update available from upstream |
-| `[~]`  | Locally modified since install |
-| `[U]`  | Already installed at user level (globally) |
+| Symbol | Meaning                                               |
+| ------ | ----------------------------------------------------- |
+| ★      | Recommended for this repo                             |
+| `[*]`  | Already installed                                     |
+| `[↑]`  | Update available from upstream                        |
+| `[~]`  | Locally modified since install                        |
+| `[U]`  | Already installed at user level (globally)            |
 | `[!]`  | Requires additional setup (MCP server, API key, etc.) |
 
 > **Tip:** `[U]` items are already available everywhere via `init-user.ps1`. You can still install them repo-level if you want them committed to `.github/`.
@@ -159,11 +159,11 @@ User-level resources (installed via `init-user.ps1`) are available in **every VS
 
 A practical split:
 
-| Use `init-user.ps1` for | Use `init-repo.ps1` for |
-| --- | --- |
+| Use `init-user.ps1` for                                         | Use `init-repo.ps1` for                                            |
+| --------------------------------------------------------------- | ------------------------------------------------------------------ |
 | General coding standards (security, accessibility, performance) | Framework-specific agents (e.g. `angular-expert`, `dotnet-expert`) |
-| Cross-cutting skills (`refactor`, `create-readme`) | Project-specific hooks and workflows |
-| Resources you always want, regardless of project | Resources the whole team should have in their repo |
+| Cross-cutting skills (`refactor`, `create-readme`)              | Project-specific hooks and workflows                               |
+| Resources you always want, regardless of project                | Resources the whole team should have in their repo                 |
 
 Items already installed at user level are shown with `[U]` in the repo picker — you can still install them repo-level if you want them committed, but it is not required.
 
@@ -207,7 +207,7 @@ Chains sync → user-level → repo init in one command.
 .\configure.ps1 -SkipUser                         # Sync + repo only
 .\configure.ps1 -SkipSync                         # Repo init only (no sync)
 .\configure.ps1 -SkipSync -Uninstall              # Remove repo resources
-.\.configure.ps1 -UninstallUser                    # Remove user-level resources
+.\configure.ps1 -UninstallUser                    # Remove user-level resources
 .\configure.ps1 -RepoPath "C:\Projects\my-app"   # Target specific repo
 .\configure.ps1 -DryRun                           # Preview all changes
 ```
@@ -233,10 +233,10 @@ Clones (first run) or pulls (subsequent runs) `github/awesome-copilot` as a spar
 
 **Breaking-change detection** — on subsequent syncs the script runs two safety checks and exits before writing the manifest if either triggers:
 
-| Check | Trigger | Action |
-| --- | --- | --- |
-| Structural | A previously-synced category folder is absent after pull | `STRUCTURAL CHANGE DETECTED` — lists missing folders, exits 1 |
-| Mass-removal | ≥ 25 % of tracked files removed in one pull | `MASS-REMOVAL DETECTED` — shows ratio, exits 1 |
+| Check        | Trigger                                                  | Action                                                        |
+| ------------ | -------------------------------------------------------- | ------------------------------------------------------------- |
+| Structural   | A previously-synced category folder is absent after pull | `STRUCTURAL CHANGE DETECTED` — lists missing folders, exits 1 |
+| Mass-removal | ≥ 25 % of tracked files removed in one pull              | `MASS-REMOVAL DETECTED` — shows ratio, exits 1                |
 
 Re-run with `-Force` once you have reviewed the upstream changes and confirmed the new structure is intentional.
 
@@ -280,21 +280,21 @@ Reads `.github/.copilot-subscriptions.json` and applies any upstream changes fro
 
 Installs agents, instructions, and skills into user-level locations, making them available across **all repos and VS Code windows** — no `.github/` needed.
 
-| Resource | Location |
-| --- | --- |
-| Agents | `%APPDATA%\Code\User\prompts\*.agent.md` |
+| Resource     | Location                                        |
+| ------------ | ----------------------------------------------- |
+| Agents       | `%APPDATA%\Code\User\prompts\*.agent.md`        |
 | Instructions | `%APPDATA%\Code\User\prompts\*.instructions.md` |
-| Skills | `~/.copilot/skills/<name>/` |
+| Skills       | `~/.copilot/skills/<name>/`                     |
 
 This is ideal for general-purpose, tech-agnostic resources you always want active (e.g. security standards, accessibility guidelines, cross-cutting agents). Tech-specific items are still available in the picker but not pre-starred.
 
 **Full lifecycle** — install, update, and remove, tracked in `~/.awesome-copilot/user-subscriptions.json`.
 
 ```powershell
-.\scripts\init-user.ps1                              # Interactive (agents + instructions + skills)
-.\scripts\init-user.ps1 -DryRun                      # Preview
-.\scripts\init-user.ps1 -Uninstall                   # Remove user-level resources
-.\scripts\init-user.ps1 -SkipSkills                  # Agents + instructions only
+.\scripts\init-user.ps1                                # Interactive (agents + instructions + skills)
+.\scripts\init-user.ps1 -DryRun                        # Preview
+.\scripts\init-user.ps1 -Uninstall                     # Remove user-level resources
+.\scripts\init-user.ps1 -SkipSkills                    # Agents + instructions only
 .\scripts\init-user.ps1 -SkipAgents -SkipInstructions  # Skills only
 .\scripts\init-user.ps1 -Agents "beastmode,se-security-reviewer"
 .\scripts\init-user.ps1 -Instructions "security-and-owasp,markdown-accessibility"
@@ -378,11 +378,11 @@ Run `.\configure.ps1` whenever you want to pull upstream additions. There is no 
 
 ## Related Projects
 
-| Project | Description |
-| --- | --- |
-| [Symdicate](https://github.com/CTOUT/Symdicate) | Composable multi-agent framework for GitHub Copilot — persona grafting, cognitive identity caching, and agent fusion |
-| [ReFrame](https://github.com/CTOUT/ReFrame) | GitHub Copilot agent for PC game configuration optimisation — detects hardware and recommends targeted performance improvements |
-| [awesome-copilot](https://github.com/github/awesome-copilot) | The community catalogue that vscode-copilot-sync syncs from |
+| Project                                                      | Description                                                                                                                     |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| [Symdicate](https://github.com/CTOUT/Symdicate)              | Composable multi-agent framework for GitHub Copilot — persona grafting, cognitive identity caching, and agent fusion            |
+| [ReFrame](https://github.com/CTOUT/ReFrame)                  | GitHub Copilot agent for PC game configuration optimisation — detects hardware and recommends targeted performance improvements |
+| [awesome-copilot](https://github.com/github/awesome-copilot) | The community catalogue that vscode-copilot-sync syncs from                                                                     |
 
 ---
 
