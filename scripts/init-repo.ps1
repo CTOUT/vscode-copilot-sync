@@ -150,12 +150,15 @@ function Detect-RepoStack {
             $allDeps = @()
             if ($pkg.dependencies)    { $allDeps += $pkg.dependencies.PSObject.Properties.Name }
             if ($pkg.devDependencies) { $allDeps += $pkg.devDependencies.PSObject.Properties.Name }
-            if ($allDeps -contains 'react')                          { $recs.Add('react') }
-            if ($allDeps -contains 'next')                           { $recs.Add('nextjs') }
-            if ($allDeps | Where-Object { $_ -match '^@angular/' })  { $recs.Add('angular') }
-            if ($allDeps -contains 'vue')                            { $recs.Add('vue') }
-            if ($allDeps -contains 'svelte')                         { $recs.Add('svelte') }
-            if ($allDeps | Where-Object { $_ -match '^@nestjs/' })   { $recs.Add('nestjs') }
+            if ($allDeps -contains 'react')                                    { $recs.Add('react') }
+            if ($allDeps -contains 'next')                                     { $recs.Add('nextjs') }
+            if ($allDeps | Where-Object { $_ -match '^@angular/' })            { $recs.Add('angular') }
+            if ($allDeps -contains 'vue')                                      { $recs.Add('vue') }
+            if ($allDeps -contains 'nuxt')                                     { $recs.Add('nuxt') }
+            if ($allDeps -contains 'svelte')                                   { $recs.Add('svelte') }
+            if ($allDeps | Where-Object { $_ -match '^@nestjs/' })             { $recs.Add('nestjs') }
+            if ($allDeps -contains 'electron')                                 { $recs.Add('electron') }
+            if ($allDeps | Where-Object { $_ -match '^ember' })                { $recs.Add('ember') }
         } catch {}
     }
 

@@ -90,11 +90,18 @@ The picker auto-detects your language/framework and marks relevant items with �
 ### 4. Remove Installed Resources
 
 ```powershell
-# Interactive removal picker (only shows script-managed files — never user-created ones)
-.\configure.ps1 -Uninstall
+# Remove resources from the current repo's .github/ only
+.\configure.ps1 -Uninstall repo
 
-# Or directly
+# Remove user-level resources (prompts dir + skills dir)
+.\configure.ps1 -Uninstall user
+
+# Remove both repo and user-level resources in one pass
+.\configure.ps1 -Uninstall both
+
+# Or target a sub-script directly
 .\scripts\init-repo.ps1 -Uninstall
+.\scripts\init-user.ps1 -Uninstall
 ```
 
 Locally modified files are flagged with `[~]` before removal so you don't accidentally discard work.
@@ -200,16 +207,17 @@ Run this whenever you want to pull the latest upstream changes for both user-lev
 Chains sync → user-level → repo init in one command.
 
 ```powershell
-.\configure.ps1                                    # Full run (sync + both prompts)
-.\configure.ps1 -Install                          # Sync + go straight to repo pickers
-.\configure.ps1 -User                             # Sync + go straight to user-level picker
-.\configure.ps1 -SkipInit                         # Sync + user-level only
-.\configure.ps1 -SkipUser                         # Sync + repo only
-.\configure.ps1 -SkipSync                         # Repo init only (no sync)
-.\configure.ps1 -SkipSync -Uninstall              # Remove repo resources
-.\configure.ps1 -UninstallUser                    # Remove user-level resources
-.\configure.ps1 -RepoPath "C:\Projects\my-app"   # Target specific repo
-.\configure.ps1 -DryRun                           # Preview all changes
+.\configure.ps1                                       # Full run (sync + both prompts)
+.\configure.ps1 -Install                             # Sync + go straight to repo pickers
+.\configure.ps1 -User                                # Sync + go straight to user-level picker
+.\configure.ps1 -SkipInit                            # Sync + user-level only
+.\configure.ps1 -SkipUser                            # Sync + repo only
+.\configure.ps1 -SkipSync                            # Repo init only (no sync)
+.\configure.ps1 -Uninstall repo                      # Remove repo .github/ resources
+.\configure.ps1 -Uninstall user                      # Remove user-level resources
+.\configure.ps1 -Uninstall both                      # Remove both in one pass
+.\configure.ps1 -RepoPath "C:\Projects\my-app"      # Target specific repo
+.\configure.ps1 -DryRun                              # Preview all changes
 ```
 
 ---
@@ -294,6 +302,8 @@ This is ideal for general-purpose, tech-agnostic resources you always want activ
 .\scripts\init-user.ps1                                # Interactive (agents + instructions + skills)
 .\scripts\init-user.ps1 -DryRun                        # Preview
 .\scripts\init-user.ps1 -Uninstall                     # Remove user-level resources
+.\scripts\init-user.ps1 -Bootstrap                     # Register already-installed files (no picker, no copies)
+.\scripts\init-user.ps1 -Bootstrap -DryRun             # Preview what bootstrap would register
 .\scripts\init-user.ps1 -SkipSkills                    # Agents + instructions only
 .\scripts\init-user.ps1 -SkipAgents -SkipInstructions  # Skills only
 .\scripts\init-user.ps1 -Agents "beastmode,se-security-reviewer"
@@ -303,6 +313,8 @@ This is ideal for general-purpose, tech-agnostic resources you always want activ
 # Non-default VS Code installations
 .\scripts\init-user.ps1 -PromptsDir "$env:APPDATA\Code - Insiders\User\prompts"
 ```
+
+> **`-Bootstrap`** is useful when `user-subscriptions.json` is missing but resources are already on disk — for example after upgrading from v1.x or after manually copying files from the cache. It registers them all as subscriptions so `update-user.ps1` can track and update them without requiring a full reinstall through the picker.
 
 ---
 

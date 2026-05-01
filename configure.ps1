@@ -25,25 +25,28 @@ Usage:
   .\configure.ps1 -SkipSync -RepoPath "C:\Projects\my-app"
 
   # Remove installed .github/ resources from the current repo
-  .\configure.ps1 -Uninstall
+  .\configure.ps1 -Uninstall repo
+
+  # Remove installed user-level resources (agents, instructions & skills)
+  .\configure.ps1 -Uninstall user
+
+  # Remove both repo and user-level resources in one pass
+  .\configure.ps1 -Uninstall both
 
   # Install user-level agents (available in all repos, stored in %APPDATA%\Code\User\prompts\)
   .\configure.ps1 -User
 
   # Skip the user-level step
   .\configure.ps1 -SkipUser
-
-  # Remove installed user-level agents
-  .\configure.ps1 -UninstallUser
 #>
 [CmdletBinding()] param(
     [switch]$SkipSync,
     [switch]$SkipInit,
     [switch]$SkipUser,      # Skip user-level resource setup
     [switch]$Install,       # Skip the Y/N prompt and go straight to init-repo pickers
-    [switch]$Uninstall,     # Remove installed .github/ resources via init-repo -Uninstall
     [switch]$User,          # Skip the Y/N prompt and go straight to init-user pickers
-    [switch]$UninstallUser, # Remove user-level resources via init-user -Uninstall
+    [ValidateSet('repo', 'user', 'both')]
+    [string]$Uninstall = '', # Remove installed resources: 'repo', 'user', or 'both'
     [string]$RepoPath = (Get-Location).Path,
     [switch]$DryRun
 )
@@ -75,10 +78,11 @@ if (Test-Path $manifest) {
     Log "No local cache found — sync will download everything fresh." 'WARN'
 }
 
-if ($Uninstall)     { $SkipSync = $true; $SkipUser = $true  }  # repo uninstall: skip sync + skip user-level prompt
-if ($UninstallUser) { $SkipSync = $true; $SkipInit = $true  }  # user uninstall: skip sync + skip repo prompt
-if ($Install)       { $SkipInit = $false }  # ensure -Install always runs init-repo
-if ($User)          { $SkipUser = $false }  # ensure -User always runs init-user
+if ($Uninstall -eq 'repo')  { $SkipSync = $true; $SkipUser = $true  }  # repo uninstall: skip sync + user step
+if ($Uninstall -eq 'user')  { $SkipSync = $true; $SkipInit = $true  }  # user uninstall: skip sync + repo step
+if ($Uninstall -eq 'both')  { $SkipSync = $true  }                     # both: skip sync only
+if ($Install)               { $SkipInit = $false }  # ensure -Install always runs init-repo
+if ($User)                  { $SkipUser = $false }  # ensure -User always runs init-user
 
 #endregion # Initialisation
 
@@ -95,9 +99,9 @@ if (-not $SkipSync) {
 
 #region Step 1.5 — User-level resources
 if (-not $SkipUser) {
-    # If user subscriptions exist, check for updates first
     $userManifestFile = "$HOME\.awesome-copilot\user-subscriptions.json"
     $userSubCount     = 0
+
     if (Test-Path $userManifestFile) {
         $userSubCount = try { (@((Get-Content $userManifestFile -Raw | ConvertFrom-Json).subscriptions)).Count } catch { 0 }
         if ($userSubCount -gt 0) {
@@ -106,18 +110,53 @@ if (-not $SkipUser) {
             if ($DryRun) { $updateArgs['DryRun'] = $true }
             & (Join-Path $ScriptDir 'update-user.ps1') @updateArgs
         }
+    } else {
+        # Manifest missing — check whether cache-origin files are already installed on disk.
+        # This happens when resources were installed before v2.0.0 (which introduced the
+        # manifest), or when configure.ps1 was run but the user-level step was skipped.
+        # Auto-bootstrap registers all installed cache-origin files so update-user.ps1
+        # can manage them going forward.
+        $cacheRoot   = "$HOME\.awesome-copilot"
+        $promptsDir  = [System.Environment]::GetFolderPath('ApplicationData') + '\Code\User\prompts'
+        $skillsDir   = "$HOME\.copilot\skills"
+        $untrackedCount = 0
+        foreach ($cat in @('agents','instructions','skills')) {
+            $cDir = Join-Path $cacheRoot $cat
+            if (-not (Test-Path $cDir)) { continue }
+            if ($cat -eq 'skills') {
+                $untrackedCount += (Get-ChildItem $cDir -Directory -EA SilentlyContinue |
+                    Where-Object { Test-Path (Join-Path $skillsDir $_.Name) }).Count
+            } else {
+                $pattern = if ($cat -eq 'agents') { '*.agent.md' } else { '*.instructions.md' }
+                $untrackedCount += (Get-ChildItem $cDir -Filter $pattern -EA SilentlyContinue |
+                    Where-Object { Test-Path (Join-Path $promptsDir $_.Name) }).Count
+            }
+        }
+        if ($untrackedCount -gt 0) {
+            Log "Detected $untrackedCount user-level resource(s) installed from the cache with no tracking record." 'WARN'
+            Log "Bootstrapping user-subscriptions.json so update-user.ps1 can manage them..." 'WARN'
+            $bootstrapArgs = @{ Bootstrap = $true }
+            if ($DryRun) { $bootstrapArgs['DryRun'] = $true }
+            & (Join-Path $ScriptDir 'init-user.ps1') @bootstrapArgs
+            if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Log "Bootstrap failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
+            # Reload count so the update step fires on next configure run
+            if (Test-Path $userManifestFile) {
+                $userSubCount = try { (@((Get-Content $userManifestFile -Raw | ConvertFrom-Json).subscriptions)).Count } catch { 0 }
+            }
+        }
     }
 
-    Step "User-level agents (available in all repos)"
-    if ($User -or $UninstallUser) {
-        # -User or -UninstallUser: skip the Y/N prompt, run directly
+    Step "User-level resources (agents, instructions & skills — available in all repos)"
+    if ($User -or $Uninstall -in @('user','both')) {
+        # -User or -Uninstall user/both: skip the Y/N prompt, run directly
         $userArgs = @{}
-        if ($DryRun)        { $userArgs['DryRun']    = $true }
-        if ($UninstallUser) { $userArgs['Uninstall'] = $true }
+        if ($DryRun)                          { $userArgs['DryRun']    = $true }
+        if ($Uninstall -in @('user','both'))   { $userArgs['Uninstall'] = $true }
         & (Join-Path $ScriptDir 'init-user.ps1') @userArgs
         if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Log "init-user failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
     } else {
-        Write-Host "  Add user-level agents to VS Code? (available in all repos — no .github/ needed)" -ForegroundColor Yellow
+        Write-Host "  Add/update user-level resources (agents, instructions & skills)?" -ForegroundColor Yellow
+        Write-Host "  These are available in ALL repos — no .github/ needed." -ForegroundColor DarkGray
         Write-Host "  [Y] Yes   [N] No (default): " -NoNewline -ForegroundColor Yellow
         $answer = (Read-Host).Trim()
         if ($answer -match '^[Yy]') {
@@ -150,14 +189,15 @@ if (-not $SkipInit) {
     }
 
     Step "Init repo"
-    if ($Uninstall -and $subCount -eq 0) {
+    $doRepoUninstall = $Uninstall -in @('repo','both')
+    if ($doRepoUninstall -and $subCount -eq 0) {
         Log "Nothing to uninstall — no subscriptions recorded for this repo."
-    } elseif ($Install -or $Uninstall) {
-        # -Install or -Uninstall: skip the Y/N prompt, run directly
+    } elseif ($Install -or $doRepoUninstall) {
+        # -Install or -Uninstall repo/both: skip the Y/N prompt, run directly
         $initArgs = @{}
-        if ($DryRun)    { $initArgs['DryRun']    = $true }
-        if ($RepoPath)  { $initArgs['RepoPath']  = $RepoPath }
-        if ($Uninstall) { $initArgs['Uninstall'] = $true }
+        if ($DryRun)           { $initArgs['DryRun']    = $true }
+        if ($RepoPath)         { $initArgs['RepoPath']  = $RepoPath }
+        if ($doRepoUninstall)  { $initArgs['Uninstall'] = $true }
         & (Join-Path $ScriptDir 'init-repo.ps1') @initArgs
     } else {
         Write-Host "  Add agents/instructions/hooks/workflows/skills to .github/ in the current repo?" -ForegroundColor Yellow

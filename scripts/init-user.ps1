@@ -32,6 +32,13 @@ Usage:
   # Remove installed user-level resources
   .\init-user.ps1 -Uninstall
 
+  # Bootstrap: register all already-installed cache-origin files into the manifest
+  # without re-installing anything.  Use this when user-subscriptions.json is missing
+  # but resources are already on disk (e.g. installed before v2.0.0, or after answering
+  # N to the configure.ps1 prompt, or installed manually from the cache).
+  .\init-user.ps1 -Bootstrap
+  .\init-user.ps1 -Bootstrap -DryRun   # preview what would be registered
+
 Notes:
   - Files are only overwritten if the source is newer/different.
   - The prompts folder and skills folder are created if they don't exist.
@@ -56,7 +63,8 @@ Notes:
     [switch]$SkipInstructions,
     [switch]$SkipSkills,
     [switch]$DryRun,
-    [switch]$Uninstall  # Show a picker of installed items to remove instead of installing
+    [switch]$Uninstall,  # Show a picker of installed items to remove instead of installing
+    [switch]$Bootstrap   # Register all already-installed cache-origin files; no pickers, no file copies
 )
 
 #region Initialisation
@@ -247,21 +255,31 @@ $script:TechSpecificSegments = @(
     # Languages
     'csharp','dotnet','python','java','kotlin','go','rust','ruby','php','swift',
     'typescript','javascript','clojure',
-    # Frontend / mobile frameworks
+    # Frontend / mobile / platform frameworks
     'react','angular','vue','nextjs','nuxt','svelte','ember','laravel','django',
     'android','ios','maui','winforms','winui','electron',
+    'mobile',       # mobile development platform (iOS/Android/cross-platform)
     # Cloud & infrastructure
     'azure','aws','gcp','terraform','bicep','kubernetes','docker',
+    'terratest',    # TerraTest — Terraform testing framework
+    'kubestellar',  # KubeStellar — Kubernetes multi-cluster federation
     # Vendors & SaaS platforms
     'salesforce','shopify','atlassian','drupal','wordpress','pimcore',
     'amplitude','launchdarkly','comet','apify',
     'pagerduty','datadog','dynatrace','octopus','jfrog',
     'neon','diffblue','stackhawk','taxcore','cast',
-    # Microsoft product suite (Power Platform family + Flow Studio)
+    'monday',       # monday.com project management
+    'aem',          # Adobe Experience Manager
+    'lingodotdev',  # Lingo.dev i18n translation platform
+    # Microsoft product & tooling suite
     'power','flowstudio',
+    'defender',     # Microsoft Defender security platform
+    'foundry',      # Azure AI Foundry
+    'context7',     # Context7 MCP documentation server
     # Databases & query engines
     'neo4j','elasticsearch','mongodb','postgres','postgresql','mysql','oracle','redis',
     'kusto','spark',
+    'kql',          # Kusto Query Language
     # Specific tooling
     'playwright','linux','github','powerbi','powershell','mcp',
     # Versioned / compound tech names (react18, react19, vuejs, winui3, cpp...)
@@ -282,14 +300,27 @@ $script:GeneralPositiveSegments = @(
     'implementation','task','research','researcher','spike','feature',
     # Language-agnostic engineering practices
     'tdd','devops','swe','qa','security','responsible','governance','owasp',
+    'safety',       # agent-safety, AI/system safety practices
+    'gitops',       # se-gitops-ci-specialist: GitOps workflows
     # Code quality & process
     'janitor','refine','refactor','debt','remediation','tour','simplifier',
+    'modernization',# modernization: language-agnostic code modernisation
+    # Engineering roles (new agent families: gem-*, se-*, software-engineer-*)
+    'implementer',  # gem-implementer: implements features cross-stack
+    'engineer',     # software-engineer-agent-v1: general SE work
+    'designer',     # gem-designer: general UX/UI design
+    'ux',           # se-ux-ui-designer: user experience design
+    'evaluator',    # technical-content-evaluator: general evaluation
+    'investigator', # devtools-regression-investigator: root-cause analysis
+    'documenter',   # project-documenter: documentation generation
     # Writing & docs
     'writer','documentation',
+    'localization', # localization: i18n and l10n practices (any stack)
     # Accessibility & quality standards
     'accessibility','a11y','performance',
     # Memory / cross-session
     'remember',
+    'memory',       # memory-bank: AI memory management patterns
     # Understanding / learning
     'understand','understanding',
     # Polyglot / language-agnostic testing
@@ -568,6 +599,106 @@ function Select-UserToRemove {
 }
 
 #endregion # Picker helpers
+
+#region Bootstrap — register existing installations without re-copying files
+if ($Bootstrap) {
+    Log "Bootstrap: scanning installed user-level resources against cache..."
+    $bootstrapEntries = [System.Collections.Generic.List[object]]::new()
+
+    # Agents
+    $agentCacheDir = Join-Path $SourceRoot 'agents'
+    if (Test-Path $agentCacheDir) {
+        Get-ChildItem $agentCacheDir -File | Where-Object { $_.Name -match '\.agent\.md$' } | ForEach-Object {
+            $itemName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.agent$',''
+            $destFile = Join-Path $PromptsDir $_.Name
+            if ((Test-Path $destFile) -and -not $script:UserSubIndex.ContainsKey("agents|$itemName")) {
+                Log "  Register agent: $itemName"
+                if (-not $DryRun) {
+                    $bootstrapEntries.Add([pscustomobject]@{
+                        name          = $itemName
+                        category      = 'agents'
+                        type          = 'file'
+                        fileName      = $_.Name
+                        sourceRelPath = "agents/$($_.Name)"
+                        hashAtInstall = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+                        installedAt   = (Get-Date).ToString('o')
+                    })
+                }
+            }
+        }
+    }
+
+    # Instructions
+    $instrCacheDir = Join-Path $SourceRoot 'instructions'
+    if (Test-Path $instrCacheDir) {
+        Get-ChildItem $instrCacheDir -File | Where-Object { $_.Name -match '\.instructions\.md$' } | ForEach-Object {
+            $itemName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.instructions$',''
+            $destFile = Join-Path $PromptsDir $_.Name
+            if ((Test-Path $destFile) -and -not $script:UserSubIndex.ContainsKey("instructions|$itemName")) {
+                Log "  Register instruction: $itemName"
+                if (-not $DryRun) {
+                    $bootstrapEntries.Add([pscustomobject]@{
+                        name          = $itemName
+                        category      = 'instructions'
+                        type          = 'file'
+                        fileName      = $_.Name
+                        sourceRelPath = "instructions/$($_.Name)"
+                        hashAtInstall = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+                        installedAt   = (Get-Date).ToString('o')
+                    })
+                }
+            }
+        }
+    }
+
+    # Skills
+    $skillCacheDir = Join-Path $SourceRoot 'skills'
+    if (Test-Path $skillCacheDir) {
+        Get-ChildItem $skillCacheDir -Directory | ForEach-Object {
+            $destDir = Join-Path $SkillsDir $_.Name
+            if ((Test-Path $destDir) -and -not $script:UserSubIndex.ContainsKey("skills|$($_.Name)")) {
+                Log "  Register skill: $($_.Name)"
+                if (-not $DryRun) {
+                    $bootstrapEntries.Add([pscustomobject]@{
+                        name          = $_.Name
+                        category      = 'skills'
+                        type          = 'directory'
+                        dirName       = $_.Name
+                        sourceRelPath = "skills/$($_.Name)"
+                        hashAtInstall = Get-DirHash $_.FullName
+                        installedAt   = (Get-Date).ToString('o')
+                    })
+                }
+            }
+        }
+    }
+
+    if ($DryRun) {
+        # Count what would be registered by re-running without DryRun
+        $wouldCount = 0
+        foreach ($cat in @('agents','instructions','skills')) {
+            $cDir = Join-Path $SourceRoot $cat
+            if (-not (Test-Path $cDir)) { continue }
+            $isDir = $cat -eq 'skills'
+            $items = if ($isDir) { Get-ChildItem $cDir -Directory } else { Get-ChildItem $cDir -File }
+            foreach ($item in $items) {
+                $n = if ($isDir) { $item.Name } else {
+                    [System.IO.Path]::GetFileNameWithoutExtension($item.Name) -replace '\.(agent|instructions)$',''
+                }
+                $destPath = if ($isDir) { Join-Path $SkillsDir $n } else { Join-Path $PromptsDir $item.Name }
+                if ((Test-Path $destPath) -and -not $script:UserSubIndex.ContainsKey("$cat|$n")) { $wouldCount++ }
+            }
+        }
+        Log "[DryRun] Would register $wouldCount untracked installation(s) into user-subscriptions.json" 'WARN'
+    } elseif ($bootstrapEntries.Count -gt 0) {
+        Update-UserSubscriptions -ManifestPath $UserManifestPath -NewEntries $bootstrapEntries.ToArray()
+        Log "Bootstrap complete: registered $($bootstrapEntries.Count) installation(s). Run update-user.ps1 to check for upstream changes." 'SUCCESS'
+    } else {
+        Log "Bootstrap: nothing to register — all installed resources are already tracked." 'SUCCESS'
+    }
+    exit 0
+}
+#endregion # Bootstrap
 
 #region Agents
 $totalInstalled = 0

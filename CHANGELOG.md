@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-05-01
+
+### Added
+
+- `configure.ps1`: **`-Uninstall repo|user|both`** — replaces the two separate `-Uninstall` (switch) and `-UninstallUser` (switch) parameters with a single `[ValidateSet]` string parameter. `repo` removes `.github/` resources for the current repo, `user` removes user-level resources (`%APPDATA%\Code\User\prompts\` + `~/.copilot/skills/`), `both` does both in one pass. Tab-completes in PowerShell. The old bare `-Uninstall` (no value) form is a **breaking change** — use `-Uninstall repo` going forward.
+- `scripts/init-user.ps1`: **`-Bootstrap` switch** — scans all three install locations against the local cache and writes `user-subscriptions.json` entries for every already-installed file/directory that has no existing subscription record. No files are copied or modified; only the manifest is updated. Supports `-DryRun` (reports count of what would be registered). Exits immediately after registering — does not proceed to the interactive pickers. Use this when the manifest is missing but resources are already on disk (e.g. installed before v2.0.0, or via the old publish-global.ps1 workflow).
+- `configure.ps1`: **Auto-bootstrap on missing manifest** — Step 1.5 now detects when `user-subscriptions.json` is absent but cache-origin files are installed at user level. When this condition is met it automatically calls `init-user.ps1 -Bootstrap` (or `-Bootstrap -DryRun` when running with `-DryRun`) before proceeding to the standard pickers. Previously, every `configure.ps1` run would silently skip the update-user step and default to N on the prompt, leaving installed resources permanently untracked.
+
+### Changed
+
+- `configure.ps1`: `-UninstallUser` switch **removed** — replaced by `-Uninstall user`. Update any scripts or aliases that used `-UninstallUser`.
+- `configure.ps1`: Step 1.5 label updated from `"User-level agents (available in all repos)"` to `"User-level resources (agents, instructions & skills — available in all repos)"`.
+- `configure.ps1`: Y/N prompt text updated from `"Add user-level agents to VS Code?"` to `"Add/update user-level resources (agents, instructions & skills)?"` with a second line `"These are available in ALL repos — no .github/ needed."`. Reflects that agents, instructions, and skills are all managed by this step since v2.0.0.
+
+### Testing
+
+- `configure.ps1 -Uninstall repo` / `user` / `both` — `[ValidateSet]` enforced; `'both-things'` rejected at parameter binding.
+- `configure.ps1 -Uninstall both -DryRun` — `$SkipSync = $true` only; both user (`init-user -Uninstall`) and repo (`init-repo -Uninstall`) steps fire.
+- `configure.ps1 -Uninstall repo -DryRun` — `$SkipUser = $true`; only repo step fires.
+- `configure.ps1 -Uninstall user -DryRun` — `$SkipInit = $true`; only user step fires.
+- `init-user.ps1 -Bootstrap -DryRun` — correctly reports `Would register 148 untracked installation(s)` against disk state (76 agents, 17 instructions, 55 skills).
+- `init-user.ps1 -Bootstrap` — wrote `user-subscriptions.json` with exactly 148 entries; exit code 0.
+- Re-running `-Bootstrap` after manifest exists — reports `nothing to register`; exit code 0; manifest unchanged.
+
+- `scripts/init-user.ps1`: **Extended `$GeneralPositiveSegments`** — new general-purpose agent/instruction families now receive ★ recommendations:
+  - `implementer` → `gem-implementer`, `polyglot-test-implementer`
+  - `engineer` → `software-engineer-agent-v1`, `prompt-engineer`
+  - `designer` → `gem-designer`
+  - `ux` → `se-ux-ui-designer` (now scores 4 via `ux` + `designer`)
+  - `evaluator` → `technical-content-evaluator`
+  - `investigator` → `devtools-regression-investigator`, `frontend-performance-investigator` (now scores 4)
+  - `documenter` → `project-documenter`
+  - `modernization` → `modernization`
+  - `gitops` → `se-gitops-ci-specialist`
+  - `safety` → `agent-safety.instructions.md`
+  - `localization` → `localization.instructions.md`
+  - `memory` → `memory-bank.instructions.md`
+- `scripts/init-user.ps1`: **Extended `$TechSpecificSegments`** — new vendor/platform names added to prevent incorrect ★ recommendations:
+  - `mobile` — blocks all `*-mobile` agents (`gem-designer-mobile`, `gem-implementer-mobile`, `gem-mobile-tester`)
+  - `foundry` — blocks `custom-agent-foundry` (Azure AI Foundry)
+  - `defender` — blocks `defender-scout-kql` (Microsoft Defender)
+  - `kql` — blocks KQL-specific agents (Kusto Query Language)
+  - `terratest` — blocks `terratest-module-testing` (Terraform testing framework)
+  - `kubestellar` — blocks `kubestellar-console` (Kubernetes multi-cluster federation)
+  - `monday` — blocks `monday-bug-fixer` (monday.com)
+  - `aem` — blocks `aem-frontend-specialist` (Adobe Experience Manager)
+  - `lingodotdev` — blocks `lingodotdev-i18n` (Lingo.dev translation platform)
+  - `context7` — blocks `context7` (Context7 MCP documentation server)
+- `scripts/init-repo.ps1`: **Extended `Detect-RepoStack` package.json detection** — three additional frontend frameworks now auto-detected from `package.json` dependencies and scored for repo-level recommendations:
+  - `nuxt` — Nuxt.js (Vue meta-framework)
+  - `electron` — Electron (desktop apps)
+  - `ember` — Ember.js (matched on `^ember` dep prefix)
+
+### Testing
+
+- Scored all 203 agents against updated segment lists. Net change: **12 agents newly starred** (from 72 to 84 starred), **0 regressions** (no previously-starred agent lost its star).
+- Newly starred agents: `devtools-regression-investigator`, `gem-designer`, `gem-implementer`, `modernization`, `polyglot-test-implementer` (score ↑ to 4), `project-documenter`, `prompt-engineer` (score ↑ to 4), `se-gitops-ci-specialist`, `se-ux-ui-designer` (score ↑ to 4), `software-engineer-agent-v1`, `technical-content-evaluator`, `frontend-performance-investigator` (score ↑ to 4).
+- Confirmed all 10 new tech-specific segments correctly block their target agents.
+
 ## [2.0.0] - 2026-04-18
 
 ### Added
