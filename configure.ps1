@@ -9,11 +9,16 @@ Chains the scripts in the correct order:
   3. init-repo.ps1              -- (prompted) per-repo .github/ setup
 
 Usage:
-  # Full interactive run: sync + prompt for init-repo
+  # Full interactive run: sync + prompt for both steps
   .\configure.ps1
 
-  # Sync + go straight to install pickers (skip the Y/N prompt)
+  # Sync + prompt for user and repo pickers
   .\configure.ps1 -Install
+
+  # Sync + go straight to pickers without prompting — use -Scope to target a specific scope
+  .\configure.ps1 -Install -Scope repo   # repo only, no prompt
+  .\configure.ps1 -Install -Scope user   # user only, no prompt
+  .\configure.ps1 -Install -Scope both   # both, no prompts
 
   # Sync only (skip repo setup)
   .\configure.ps1 -SkipInit
@@ -24,29 +29,25 @@ Usage:
   # Init a specific repo (not the current working directory)
   .\configure.ps1 -SkipSync -RepoPath "C:\Projects\my-app"
 
-  # Remove installed .github/ resources from the current repo
-  .\configure.ps1 -Uninstall repo
+  # Remove installed resources — use -Scope to target a specific scope
+  .\configure.ps1 -Uninstall              # removes both user + repo
+  .\configure.ps1 -Uninstall -Scope repo  # repo .github/ only
+  .\configure.ps1 -Uninstall -Scope user  # user-level only
 
-  # Remove installed user-level resources (agents, instructions & skills)
-  .\configure.ps1 -Uninstall user
-
-  # Remove both repo and user-level resources in one pass
-  .\configure.ps1 -Uninstall both
-
-  # Install user-level agents (available in all repos, stored in %APPDATA%\Code\User\prompts\)
-  .\configure.ps1 -User
-
-  # Skip the user-level step
+  # Skip a specific step
   .\configure.ps1 -SkipUser
+  .\configure.ps1 -SkipInit
 #>
 [CmdletBinding()] param(
     [switch]$SkipSync,
     [switch]$SkipInit,
     [switch]$SkipUser,      # Skip user-level resource setup
-    [switch]$Install,       # Skip the Y/N prompt and go straight to init-repo pickers
-    [switch]$User,          # Skip the Y/N prompt and go straight to init-user pickers
+    [switch]$Install,       # Sync + run pickers; add -Scope to skip prompts and target a specific scope
+    [switch]$Uninstall,     # Remove installed resources; add -Scope to target a specific scope
     [ValidateSet('repo', 'user', 'both')]
-    [string]$Uninstall = '', # Remove installed resources: 'repo', 'user', or 'both'
+    [string]$Scope = '',    # Scope for -Install or -Uninstall: 'repo', 'user', or 'both'
+    [switch]$User,          # Backwards-compat alias for: -Install -Scope user
+    [Parameter(Position = 0)]
     [string]$RepoPath = (Get-Location).Path,
     [switch]$DryRun
 )
@@ -78,11 +79,16 @@ if (Test-Path $manifest) {
     Log "No local cache found — sync will download everything fresh." 'WARN'
 }
 
-if ($Uninstall -eq 'repo')  { $SkipSync = $true; $SkipUser = $true  }  # repo uninstall: skip sync + user step
-if ($Uninstall -eq 'user')  { $SkipSync = $true; $SkipInit = $true  }  # user uninstall: skip sync + repo step
-if ($Uninstall -eq 'both')  { $SkipSync = $true  }                     # both: skip sync only
-if ($Install)               { $SkipInit = $false }  # ensure -Install always runs init-repo
-if ($User)                  { $SkipUser = $false }  # ensure -User always runs init-user
+# -User backwards-compat alias: maps to -Install -Scope user
+if ($User -and -not $Install) { $Install = $true; if ($Scope -eq '') { $Scope = 'user' } }
+
+# -Scope restricts which steps run (applies to both -Install and -Uninstall)
+if ($Scope -eq 'repo') { $SkipUser = $true }   # repo scope: skip user step entirely
+if ($Scope -eq 'user') { $SkipInit = $true }   # user scope: skip repo step entirely
+# 'both' or '' : neither step is skipped by scope
+
+# -Uninstall never needs to sync
+if ($Uninstall) { $SkipSync = $true }
 
 #endregion # Initialisation
 
@@ -147,11 +153,11 @@ if (-not $SkipUser) {
     }
 
     Step "User-level resources (agents, instructions & skills — available in all repos)"
-    if ($User -or $Uninstall -in @('user','both')) {
-        # -User or -Uninstall user/both: skip the Y/N prompt, run directly
+    if ($Uninstall -or ($Install -and $Scope -in @('user','both'))) {
+        # Uninstall (always explicit) or install scoped to user/both: skip the Y/N prompt
         $userArgs = @{}
-        if ($DryRun)                          { $userArgs['DryRun']    = $true }
-        if ($Uninstall -in @('user','both'))   { $userArgs['Uninstall'] = $true }
+        if ($DryRun)      { $userArgs['DryRun']    = $true }
+        if ($Uninstall)   { $userArgs['Uninstall'] = $true }
         & (Join-Path $ScriptDir 'init-user.ps1') @userArgs
         if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Log "init-user failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
     } else {
@@ -189,11 +195,11 @@ if (-not $SkipInit) {
     }
 
     Step "Init repo"
-    $doRepoUninstall = $Uninstall -in @('repo','both')
+    $doRepoUninstall = [bool]$Uninstall
     if ($doRepoUninstall -and $subCount -eq 0) {
         Log "Nothing to uninstall — no subscriptions recorded for this repo."
-    } elseif ($Install -or $doRepoUninstall) {
-        # -Install or -Uninstall repo/both: skip the Y/N prompt, run directly
+    } elseif ($doRepoUninstall -or ($Install -and $Scope -in @('repo','both'))) {
+        # Uninstall (always explicit) or install scoped to repo/both: skip the Y/N prompt
         $initArgs = @{}
         if ($DryRun)           { $initArgs['DryRun']    = $true }
         if ($RepoPath)         { $initArgs['RepoPath']  = $RepoPath }
