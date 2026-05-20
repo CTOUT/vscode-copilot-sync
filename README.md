@@ -45,11 +45,16 @@ cd vscode-copilot-sync
 ### 2. Run the Configurator
 
 ```powershell
-# Sync from GitHub and optionally configure your current repo
+# Sync from GitHub and prompt to configure user-level and repo resources
 .\configure.ps1
 
-# Sync + go straight to install pickers (no Y/N prompt)
+# Sync + prompt for both pickers (same as above but explicit)
 .\configure.ps1 -Install
+
+# Sync + go straight to a specific scope without prompting
+.\configure.ps1 -Install -Scope repo   # repo .github/ only
+.\configure.ps1 -Install -Scope user   # user-level only
+.\configure.ps1 -Install -Scope both   # both, no prompts
 
 # Sync only (no repo setup)
 .\configure.ps1 -SkipInit
@@ -91,13 +96,13 @@ The picker auto-detects your language/framework and marks relevant items with â˜
 
 ```powershell
 # Remove resources from the current repo's .github/ only
-.\configure.ps1 -Uninstall repo
+.\configure.ps1 -Uninstall -Scope repo
 
 # Remove user-level resources (prompts dir + skills dir)
-.\configure.ps1 -Uninstall user
+.\configure.ps1 -Uninstall -Scope user
 
 # Remove both repo and user-level resources in one pass
-.\configure.ps1 -Uninstall both
+.\configure.ps1 -Uninstall
 
 # Or target a sub-script directly
 .\scripts\init-repo.ps1 -Uninstall
@@ -147,16 +152,16 @@ Run from inside any repo â€” or pass `-RepoPath` from anywhere. Language and fra
 ```powershell
 # From inside the repo
 cd C:\Projects\my-app
-.\path\to\vscode-copilot-sync\configure.ps1 -Install
+.\path\to\vscode-copilot-sync\configure.ps1 -Install -Scope repo
 
 # Or target it directly without cd-ing
-.\configure.ps1 -Install -RepoPath "C:\Projects\my-app"
+.\configure.ps1 -Install -Scope repo -RepoPath "C:\Projects\my-app"
 
 # Preview first without writing anything
-.\configure.ps1 -Install -DryRun -RepoPath "C:\Projects\my-app"
+.\configure.ps1 -Install -Scope repo -DryRun -RepoPath "C:\Projects\my-app"
 ```
 
-`-Install` skips the "do you want to configure a repo?" prompt and goes straight to the pickers.
+`-Scope repo` skips the user-level step and the Y/N prompt, going straight to the repo pickers.
 
 ---
 
