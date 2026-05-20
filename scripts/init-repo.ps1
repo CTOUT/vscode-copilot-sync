@@ -23,6 +23,10 @@ Usage:
   .\init-repo.ps1 -SkipAgents -SkipHooks
   .\init-repo.ps1 -SkipHooks -SkipWorkflows -SkipSkills
 
+  # Filter to specific categories only (all others are skipped)
+  .\init-repo.ps1 -Category "agents,skills"
+  .\init-repo.ps1 -Category "instructions,hooks" -DryRun
+
   # Non-interactive: specify items by name (comma-separated)
   .\init-repo.ps1 -Instructions "angular,dotnet-framework" -Hooks "session-logger"
   .\init-repo.ps1 -Agents "devops-expert,se-security-reviewer"
@@ -56,11 +60,14 @@ Notes:
     [string]$Hooks         = '',
     [string]$Workflows     = '',
     [string]$Skills        = '',   # Comma-separated names to pre-select (non-interactive)
+    [string]$Plugins       = '',   # Comma-separated plugin names to pre-select (non-interactive)
+    [string]$Category      = '',   # Comma-separated categories to process; all others skipped (e.g. 'agents,skills')
     [switch]$SkipInstructions,
     [switch]$SkipAgents,
     [switch]$SkipHooks,
     [switch]$SkipWorkflows,
     [switch]$SkipSkills,
+    [switch]$SkipPlugins,
     [string]$UserPromptsDir = "$env:APPDATA\Code\User\prompts",  # used to flag agents already installed globally
     [switch]$DryRun,
     [switch]$Uninstall   # show a picker of installed items to remove instead of installing
@@ -68,6 +75,16 @@ Notes:
 
 #region Initialisation
 $ErrorActionPreference = 'Stop'
+
+# -Category: translate to Skip* flags (only the listed categories are processed)
+if ($Category) {
+    $wantedCats = @($Category.ToLower() -split '\s*,\s*' | Where-Object { $_ -ne '' })
+    foreach ($cat in @('agents','instructions','hooks','workflows','skills','plugins')) {
+        if ($cat -notin $wantedCats) {
+            Set-Variable -Name "Skip$(([System.Globalization.CultureInfo]::InvariantCulture).TextInfo.ToTitleCase($cat))" -Value $true
+        }
+    }
+}
 
 function Log($m, [string]$level = 'INFO') {
     $ts = (Get-Date).ToString('s')
@@ -264,7 +281,7 @@ Log "Copilot cache: $SourceRoot"
 
 # Auto-detect stack or prompt for intent
 $script:Recommendations = @()
-if (-not ($SkipInstructions -and $SkipHooks -and $SkipWorkflows -and $SkipAgents -and $SkipSkills)) {
+if (-not ($SkipInstructions -and $SkipHooks -and $SkipWorkflows -and $SkipAgents -and $SkipSkills -and $SkipPlugins)) {
     $repoFileCount = (Get-ChildItem $RepoPath -Recurse -File -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -notmatch '\\(\.git|node_modules|\.venv|bin|obj)\\' } |
         Measure-Object).Count
@@ -604,7 +621,7 @@ function Update-Subscriptions {
     if (-not $DryRun) {
         $dir = Split-Path $ManifestPath -Parent
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-        $subs | ConvertTo-Json -Depth 5 | Set-Content $ManifestPath -Encoding UTF8
+        $subs | ConvertTo-Json -Depth 8 | Set-Content $ManifestPath -Encoding UTF8
         Log "Updated subscriptions: $ManifestPath"
     } else {
         Log "[DryRun] Would update subscriptions: $ManifestPath ($($NewEntries.Count) new/updated entries)"
@@ -704,7 +721,68 @@ function Build-DirCatalogue([string]$CatDir, [string]$DestDir, [string]$Category
     } | Sort-Object Name
 }
 
-#endregion # Catalogue builders
+function Build-PluginCatalogue([string]$PluginsRoot, [string]$DestDir) {
+    if (-not (Test-Path $PluginsRoot)) { return @() }
+    Get-ChildItem $PluginsRoot -Directory | Where-Object { $_.Name -notmatch '^(external|partners)' } | ForEach-Object {
+        $pluginDir      = $_.FullName
+        $pluginName     = $_.Name
+        $readmePath     = Join-Path $pluginDir 'README.md'
+        $pluginJsonSrc  = Join-Path $pluginDir '.github' | Join-Path -ChildPath 'plugin' | Join-Path -ChildPath 'plugin.json'
+        $subKey         = "plugins|$pluginName"
+        $subEntry       = $script:SubIndex[$subKey]
+        $destPluginJson = Join-Path $DestDir "plugin\$pluginName\plugin.json"
+        $installed      = Test-Path $destPluginJson
+
+        $updateAvailable = $false
+        $locallyModified = $false
+        $managedByScript = $null -ne $subEntry
+
+        if ($installed -and $subEntry) {
+            $srcHash         = Get-DirHash $pluginDir
+            $locallyModified = $srcHash -ne $subEntry.hashAtInstall
+            $updateAvailable = $locallyModified
+        }
+
+        # Enumerate what the plugin would install (agents, skills, plugin.json)
+        $agentFiles  = @()
+        $skillDirs   = @()
+        $agentSrcDir = Join-Path $pluginDir 'agents'
+        $skillSrcDir = Join-Path $pluginDir 'skills'
+        if (Test-Path $agentSrcDir) {
+            $agentFiles = @(Get-ChildItem $agentSrcDir -File | Where-Object { $_.Name -match '\.agent\.md$' })
+        }
+        if (Test-Path $skillSrcDir) {
+            $skillDirs = @(Get-ChildItem $skillSrcDir -Directory)
+        }
+        $hasPluginJson   = Test-Path $pluginJsonSrc
+        $componentCount  = $agentFiles.Count + $skillDirs.Count + ($hasPluginJson ? 1 : 0)
+        $componentSummary = @()
+        if ($agentFiles.Count  -gt 0) { $componentSummary += "$($agentFiles.Count) agent(s)" }
+        if ($skillDirs.Count   -gt 0) { $componentSummary += "$($skillDirs.Count) skill(s)" }
+        if ($hasPluginJson)            { $componentSummary += 'plugin.json' }
+
+        $desc = if (Test-Path $readmePath) { Get-Description $readmePath } else { '' }
+        if ($componentSummary.Count -gt 0) {
+            $desc = ($desc + " [$($componentSummary -join ', ')]").TrimStart()
+        }
+
+        [pscustomobject]@{
+            Name             = $pluginName
+            FullPath         = $pluginDir
+            Description      = $desc
+            RequiresSetup    = Test-RequiresSetup $pluginDir
+            AlreadyInstalled = $installed
+            ManagedByScript  = $managedByScript
+            UpdateAvailable  = $updateAvailable
+            LocallyModified  = $locallyModified
+            AgentFiles       = $agentFiles
+            SkillDirs        = $skillDirs
+            HasPluginJson    = $hasPluginJson
+            PluginJsonSrc    = $pluginJsonSrc
+            ComponentCount   = $componentCount
+        }
+    } | Sort-Object Name
+}
 
 #region Subscription manifest
 $script:SubscriptionEntries   = [System.Collections.Generic.List[object]]::new()
@@ -733,7 +811,7 @@ function Remove-SubscriptionEntries {
         $kept = @($subs.subscriptions | Where-Object { $Keys -notcontains "$($_.category)|$($_.name)" })
         $subs | Add-Member -NotePropertyName 'subscriptions' -NotePropertyValue $kept   -Force
         $subs | Add-Member -NotePropertyName 'updatedAt'     -NotePropertyValue (Get-Date).ToString('o') -Force
-        $subs | ConvertTo-Json -Depth 5 | Set-Content $ManifestPath -Encoding UTF8
+        $subs | ConvertTo-Json -Depth 8 | Set-Content $ManifestPath -Encoding UTF8
     } catch { Log "Could not update subscriptions manifest: $_" 'WARN' }
 }
 
@@ -755,6 +833,7 @@ $catInstructions = if (Should-LoadCatalogue 'instructions' (Join-Path $GithubDir
 $catHooks        = if (Should-LoadCatalogue 'hooks'        (Join-Path $GithubDir 'hooks')        -IsSkipped:$SkipHooks)        { Build-DirCatalogue  (Join-Path $SourceRoot 'hooks')        (Join-Path $GithubDir 'hooks')                               'hooks'        } else { @() }
 $catWorkflows    = if (Should-LoadCatalogue 'workflows'    (Join-Path $GithubDir 'workflows')    -IsSkipped:$SkipWorkflows)    { Build-FlatCatalogue (Join-Path $SourceRoot 'workflows')    (Join-Path $GithubDir 'workflows')    '\.md$'               'workflows'    } else { @() }
 $catSkills       = if (Should-LoadCatalogue 'skills'       (Join-Path $GithubDir 'skills')       -IsSkipped:$SkipSkills)       { Build-DirCatalogue  (Join-Path $SourceRoot 'skills')       (Join-Path $GithubDir 'skills')                              'skills'       } else { @() }
+$catPlugins      = if (-not $SkipPlugins) { Build-PluginCatalogue (Join-Path $SourceRoot 'plugins') $GithubDir } else { @() }
 Log "Catalogues loaded. Opening pickers..."
 
 #endregion # Pre-load all catalogues
@@ -957,6 +1036,121 @@ if (-not $SkipSkills) {
 
 #endregion # Skills
 
+#region Plugins
+
+if (-not $SkipPlugins) {
+    $destDir   = $GithubDir
+    $catalogue = $catPlugins
+    $script:AllCatalogues.Add([pscustomobject]@{ Category='plugins'; Type='plugin'; Items=$catalogue; DestDir=$destDir })
+
+    if ($Uninstall) {
+        $toRemove = Select-ToRemove -Category 'Plugins' -Items $catalogue
+        foreach ($item in $toRemove) {
+            $subKey   = "plugins|$($item.Name)"
+            $subEntry = $script:SubIndex[$subKey]
+            if ($subEntry -and $subEntry.components) {
+                foreach ($comp in $subEntry.components) {
+                    $destPath = Join-Path $GithubDir $comp.destRel
+                    if ($comp.type -eq 'agent') {
+                        $result = Remove-File -FilePath $destPath
+                        $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+                        Log "$verb  plugin agent: $($comp.destRel)"
+                    } elseif ($comp.type -eq 'skill') {
+                        $result = Remove-Directory -DirPath $destPath
+                        $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+                        Log "$verb  plugin skill: $($comp.destRel)"
+                    } elseif ($comp.type -eq 'pluginJson') {
+                        $result = Remove-File -FilePath $destPath
+                        # Also clean up empty plugin/<name>/ dir
+                        if (-not $DryRun) {
+                            $parentDir = Split-Path $destPath -Parent
+                            if ((Test-Path $parentDir) -and -not (Get-ChildItem $parentDir -Force)) {
+                                Remove-Item $parentDir -Force | Out-Null
+                            }
+                        }
+                        $verb = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+                        Log "$verb  plugin.json: $($comp.destRel)"
+                    }
+                }
+            }
+        }
+        if ($toRemove.Count -gt 0) {
+            Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "plugins|$($_.Name)" })
+        }
+    } else {
+        $selected = Select-Items -Category 'Plugins' -Items $catalogue -PreSelected $Plugins -Tags $script:Recommendations
+
+        foreach ($item in $selected) {
+            $components = [System.Collections.Generic.List[object]]::new()
+            $anyInstalled = $false
+
+            # Install agents
+            if ($item.AgentFiles -and $item.AgentFiles.Count -gt 0) {
+                $agentsDestDir = Join-Path $GithubDir 'agents'
+                foreach ($agentFile in $item.AgentFiles) {
+                    $result = Install-File -Src $agentFile.FullName -DestDir $agentsDestDir
+                    $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
+                    Log "$verb  plugin agent [$($item.Name)]: $($agentFile.Name)"
+                    if ($result -in 'added','updated','would-copy') { $anyInstalled = $true }
+                    $components.Add([pscustomobject]@{
+                        type    = 'agent'
+                        srcRel  = "plugins/$($item.Name)/agents/$($agentFile.Name)"
+                        destRel = "agents/$($agentFile.Name)"
+                    })
+                }
+            }
+
+            # Install skills
+            if ($item.SkillDirs -and $item.SkillDirs.Count -gt 0) {
+                $skillsDestDir = Join-Path $GithubDir 'skills'
+                foreach ($skillDir in $item.SkillDirs) {
+                    $r = Install-Directory -SrcDir $skillDir.FullName -DestParent $skillsDestDir
+                    $verb = if ($DryRun) { '~ DryRun' } else { '✓ Installed' }
+                    Log "$verb  plugin skill [$($item.Name)]: $($skillDir.Name) (added=$($r.Added) updated=$($r.Updated) unchanged=$($r.Unchanged))"
+                    if (-not $DryRun) { $anyInstalled = $true }
+                    $components.Add([pscustomobject]@{
+                        type    = 'skill'
+                        srcRel  = "plugins/$($item.Name)/skills/$($skillDir.Name)"
+                        destRel = "skills/$($skillDir.Name)"
+                    })
+                }
+            }
+
+            # Install plugin.json (namespaced under .github/plugin/<name>/)
+            if ($item.HasPluginJson) {
+                $pluginJsonDestDir = Join-Path $GithubDir "plugin\$($item.Name)"
+                $result = Install-File -Src $item.PluginJsonSrc -DestDir $pluginJsonDestDir
+                $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
+                Log "$verb  plugin.json [$($item.Name)]: plugin/$($item.Name)/plugin.json"
+                if ($result -in 'added','updated','would-copy') { $anyInstalled = $true }
+                $components.Add([pscustomobject]@{
+                    type    = 'pluginJson'
+                    srcRel  = "plugins/$($item.Name)/.github/plugin/plugin.json"
+                    destRel = "plugin/$($item.Name)/plugin.json"
+                })
+            }
+
+            if ($components.Count -eq 0) {
+                Log "= Plugin $($item.Name) has no installable components (metadata-only / external)."
+            }
+
+            if ($anyInstalled) { $totalInstalled++ }
+
+            $script:SubscriptionEntries.Add([pscustomobject]@{
+                name          = $item.Name
+                category      = 'plugins'
+                type          = 'plugin'
+                sourceRelPath = "plugins/$($item.Name)"
+                hashAtInstall = Get-DirHash $item.FullPath
+                installedAt   = (Get-Date).ToString('o')
+                components    = $components.ToArray()
+            })
+        }
+    }
+}
+
+#endregion # Plugins
+
 #region Summary
 
 # Auto-adopt items that are already installed in .github/ but not yet in the manifest
@@ -964,6 +1158,7 @@ if (-not $SkipSkills) {
 # Uses the current installed file hash as hashAtInstall — they'll show [↑] if upstream has moved on.
 if (-not $Uninstall -and -not $DryRun) {
     foreach ($cat in $script:AllCatalogues) {
+        if ($cat.Type -eq 'plugin') { continue }  # plugin subscriptions have a richer structure; skip auto-adoption
         $untracked = @($cat.Items | Where-Object { $_.AlreadyInstalled -and -not $_.ManagedByScript })
         foreach ($item in $untracked) {
             $installedPath = if ($cat.Type -eq 'file') {
@@ -1008,7 +1203,7 @@ if ($Uninstall) {
     Log "Dry run complete. Re-run without -DryRun to apply." 'WARN'
 } else {
     Log "$totalInstalled resource(s) installed/updated in $GithubDir" 'SUCCESS'
-    Log "Tip: commit .github/ to share Copilot resources with your team (agents, instructions, hooks, workflows, skills)."
+    Log "Tip: commit .github/ to share Copilot resources with your team (agents, instructions, hooks, workflows, skills, plugins)."
     Log "Tip: run update-repo.ps1 to check for and apply upstream changes to your subscribed resources."
     Log "Tip: run init-repo.ps1 -Uninstall to remove any installed resources."
 }

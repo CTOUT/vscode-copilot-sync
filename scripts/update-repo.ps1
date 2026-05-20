@@ -21,6 +21,10 @@ Usage:
   # Check a specific repo
   .\update-repo.ps1 -RepoPath "C:\Projects\my-app"
 
+  # Only check/update specific categories
+  .\update-repo.ps1 -Category "agents,hooks"
+  .\update-repo.ps1 -Category "instructions" -DryRun
+
 Notes:
   - Only resources present in .github/.copilot-subscriptions.json are checked.
     Run init-repo.ps1 to add new subscriptions.
@@ -34,7 +38,8 @@ Notes:
     [string]$RepoPath   = (Get-Location).Path,
     [string]$SourceRoot = "$HOME/.awesome-copilot",
     [switch]$Force,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [string]$Category = ''  # Comma-separated categories to check (e.g. 'agents,hooks'); all checked if omitted
 )
 
 #region Initialisation
@@ -79,6 +84,15 @@ if (-not $subs -or $subs.Count -eq 0) {
     exit 0
 }
 
+if ($Category) {
+    $wantedCats = @($Category.ToLower() -split '\s*,\s*' | Where-Object { $_ -ne '' })
+    $subs = @($subs | Where-Object { $_.category.ToLower() -in $wantedCats })
+    if ($subs.Count -eq 0) {
+        Log "No subscriptions match category filter: $Category"
+        exit 0
+    }
+}
+
 if (-not (Test-Path $SourceRoot)) {
     Log "Cache not found: $SourceRoot -- run sync-awesome-copilot.ps1 first" 'ERROR'; exit 1
 }
@@ -97,6 +111,33 @@ foreach ($sub in $subs) {
 
     if (-not (Test-Path $sourcePath)) {
         Log "= Skipping $($sub.name) ($($sub.category)) — no longer in cache." 'WARN'
+        continue
+    }
+
+    if ($sub.type -eq 'plugin') {
+        # Plugin: check any installed component still exists; use dir hash of entire plugin source
+        $hasAnyComponent = $false
+        if ($sub.components) {
+            foreach ($comp in $sub.components) {
+                if (Test-Path (Join-Path $GithubDir $comp.destRel)) { $hasAnyComponent = $true; break }
+            }
+        }
+        if (-not $hasAnyComponent) {
+            Log "= Skipping $($sub.name) (plugins) — all components removed locally."
+            continue
+        }
+        $currentHash = Get-DirHash $sourcePath
+        if ($currentHash -ne $sub.hashAtInstall) {
+            $stale.Add([pscustomobject]@{
+                Sub         = $sub
+                SourcePath  = $sourcePath
+                DestPath    = $GithubDir  # base for plugin component paths
+                CurrentHash = $currentHash
+            })
+            Log "↑ Stale : $($sub.name) (plugins)"
+        } else {
+            Log "= Current: $($sub.name) (plugins)"
+        }
         continue
     }
 
@@ -158,7 +199,28 @@ $updated = 0
 foreach ($item in $stale) {
     $sub = $item.Sub
     try {
-        if ($sub.type -eq 'file') {
+        if ($sub.type -eq 'plugin') {
+            # Re-install each tracked component from the updated plugin source
+            foreach ($comp in $sub.components) {
+                $compSrcPath  = Join-Path $SourceRoot $comp.srcRel
+                $compDestPath = Join-Path $GithubDir  $comp.destRel
+                if (-not (Test-Path $compSrcPath)) { continue }
+                $compDestDir = Split-Path $compDestPath -Parent
+                if (-not (Test-Path $compDestDir)) { New-Item -ItemType Directory -Path $compDestDir -Force | Out-Null }
+                if ($comp.type -eq 'skill') {
+                    # Mirror directory
+                    Get-ChildItem $compSrcPath -File -Recurse | ForEach-Object {
+                        $rel     = $_.FullName.Substring($compSrcPath.Length).TrimStart('\', '/')
+                        $dest    = Join-Path $compDestPath $rel
+                        $destDir = Split-Path $dest -Parent
+                        if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+                        Copy-Item $_.FullName $dest -Force
+                    }
+                } else {
+                    Copy-Item $compSrcPath $compDestPath -Force
+                }
+            }
+        } elseif ($sub.type -eq 'file') {
             $destDir = Split-Path $item.DestPath -Parent
             if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
             Copy-Item $item.SourcePath $item.DestPath -Force
@@ -185,7 +247,7 @@ foreach ($item in $stale) {
 # Persist updated hashes back to the manifest
 $manifest | Add-Member -NotePropertyName 'updatedAt'     -NotePropertyValue (Get-Date).ToString('o') -Force
 $manifest | Add-Member -NotePropertyName 'subscriptions' -NotePropertyValue $subs                    -Force
-$manifest | ConvertTo-Json -Depth 5 | Set-Content $ManifestPath -Encoding UTF8
+$manifest | ConvertTo-Json -Depth 8 | Set-Content $ManifestPath -Encoding UTF8
 
 Write-Host ""
 Log "$updated resource(s) updated in $GithubDir" 'SUCCESS'

@@ -23,6 +23,10 @@ Usage:
   # Target a non-default VS Code installation (e.g. Insiders)
   .\update-user.ps1 -PromptsDir "$env:APPDATA\Code - Insiders\User\prompts"
 
+  # Only check/update specific categories
+  .\update-user.ps1 -Category "agents,skills"
+  .\update-user.ps1 -Category "instructions" -DryRun
+
 Notes:
   - Only resources present in user-subscriptions.json are checked.
     Run init-user.ps1 to add new subscriptions.
@@ -37,7 +41,8 @@ Notes:
     [string]$PromptsDir = "$env:APPDATA\Code\User\prompts",
     [string]$SkillsDir  = "$HOME/.copilot/skills",
     [switch]$Force,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [string]$Category = ''  # Comma-separated categories to check (e.g. 'agents,skills'); all checked if omitted
 )
 
 #region Initialisation
@@ -73,6 +78,15 @@ $subs     = @($manifest.subscriptions)
 
 if (-not $subs -or $subs.Count -eq 0) {
     exit 0
+}
+
+if ($Category) {
+    $wantedCats = @($Category.ToLower() -split '\s*,\s*' | Where-Object { $_ -ne '' })
+    $subs = @($subs | Where-Object { $_.category.ToLower() -in $wantedCats })
+    if ($subs.Count -eq 0) {
+        Log "No subscriptions match category filter: $Category"
+        exit 0
+    }
 }
 
 if (-not (Test-Path $SourceRoot)) {

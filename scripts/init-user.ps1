@@ -23,6 +23,10 @@ Usage:
   .\init-user.ps1 -SkipSkills
   .\init-user.ps1 -SkipAgents -SkipInstructions
 
+  # Filter to specific categories only (all others are skipped)
+  .\init-user.ps1 -Category "agents,skills"
+  .\init-user.ps1 -Category "instructions"
+
   # Target a non-default VS Code installation (e.g. Insiders)
   .\init-user.ps1 -PromptsDir "$env:APPDATA\Code - Insiders\User\prompts"
 
@@ -64,11 +68,22 @@ Notes:
     [switch]$SkipSkills,
     [switch]$DryRun,
     [switch]$Uninstall,  # Show a picker of installed items to remove instead of installing
-    [switch]$Bootstrap   # Register all already-installed cache-origin files; no pickers, no file copies
+    [switch]$Bootstrap,  # Register all already-installed cache-origin files; no pickers, no file copies
+    [string]$Category = ''  # Comma-separated categories to process; all others skipped (e.g. 'agents,skills')
 )
 
 #region Initialisation
 $ErrorActionPreference = 'Stop'
+
+# -Category: translate to Skip* flags (only the listed categories are processed)
+if ($Category) {
+    $wantedCats = @($Category.ToLower() -split '\s*,\s*' | Where-Object { $_ -ne '' })
+    foreach ($cat in @('agents','instructions','skills')) {
+        if ($cat -notin $wantedCats) {
+            Set-Variable -Name "Skip$(([System.Globalization.CultureInfo]::InvariantCulture).TextInfo.ToTitleCase($cat))" -Value $true
+        }
+    }
+}
 
 function Log($m, [string]$level = 'INFO') {
     $ts = (Get-Date).ToString('s')

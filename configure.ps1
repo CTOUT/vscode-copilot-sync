@@ -26,6 +26,18 @@ Usage:
   # Preview without writing any files
   .\configure.ps1 -DryRun
 
+  # Check for and apply all upstream updates (no pickers)
+  .\configure.ps1 -Update
+  .\configure.ps1 -Update -Scope repo                    # repo subscriptions only
+  .\configure.ps1 -Update -Scope user                    # user subscriptions only
+  .\configure.ps1 -Update -Force                         # skip confirmation prompts
+  .\configure.ps1 -Update -Category "agents"             # only update agent subscriptions
+  .\configure.ps1 -Update -DryRun                        # preview what would be updated
+
+  # Filter which categories to install (pickers for listed categories only)
+  .\configure.ps1 -Install -Category "agents,skills"
+  .\configure.ps1 -Install -Scope repo -Category "hooks,workflows,plugins"
+
   # Init a specific repo (not the current working directory)
   .\configure.ps1 -SkipSync -RepoPath "C:\Projects\my-app"
 
@@ -44,8 +56,11 @@ Usage:
     [switch]$SkipUser,      # Skip user-level resource setup
     [switch]$Install,       # Sync + run pickers; add -Scope to skip prompts and target a specific scope
     [switch]$Uninstall,     # Remove installed resources; add -Scope to target a specific scope
+    [switch]$Update,        # Sync + run update scripts only (no pickers); use -Scope, -Force, -DryRun, -Category
+    [switch]$Force,         # Skip update confirmation prompt (passes -Force to update scripts)
     [ValidateSet('repo', 'user', 'both')]
-    [string]$Scope = '',    # Scope for -Install or -Uninstall: 'repo', 'user', or 'both'
+    [string]$Scope = '',    # Scope for -Install, -Uninstall, or -Update: 'repo', 'user', or 'both'
+    [string]$Category = '', # Comma-separated categories to process: agents,instructions,hooks,workflows,skills,plugins
     [switch]$User,          # Backwards-compat alias for: -Install -Scope user
     [Parameter(Position = 0)]
     [string]$RepoPath = (Get-Location).Path,
@@ -90,6 +105,9 @@ if ($Scope -eq 'user') { $SkipInit = $true }   # user scope: skip repo step enti
 # -Uninstall never needs to sync
 if ($Uninstall) { $SkipSync = $true }
 
+# -Update and -Uninstall are mutually exclusive
+if ($Update -and $Uninstall) { Log "-Update and -Uninstall cannot be used together." 'ERROR'; exit 1 }
+
 #endregion # Initialisation
 
 #region Step 1 — Sync
@@ -103,6 +121,53 @@ if (-not $SkipSync) {
 
 #endregion # Step 1
 
+#region -Update shortcut
+if ($Update) {
+    if (-not $SkipUser) {
+        $userManifestFile = "$HOME\.awesome-copilot\user-subscriptions.json"
+        $userSubCount = 0
+        if (Test-Path $userManifestFile) {
+            $userSubCount = try { (@((Get-Content $userManifestFile -Raw | ConvertFrom-Json).subscriptions)).Count } catch { 0 }
+        }
+        if ($userSubCount -gt 0) {
+            Step "Update user-level resources"
+            $updateArgs = @{}
+            if ($DryRun)   { $updateArgs['DryRun']   = $true }
+            if ($Force)    { $updateArgs['Force']     = $true }
+            if ($Category) { $updateArgs['Category']  = $Category }
+            & (Join-Path $ScriptDir 'update-user.ps1') @updateArgs
+            if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Log "update-user failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
+        } else {
+            Log "No user-level subscriptions found — nothing to update." 'WARN'
+        }
+    }
+
+    if (-not $SkipInit) {
+        $subscriptionsFile = Join-Path $RepoPath '.github\.copilot-subscriptions.json'
+        $subCount = 0
+        if (Test-Path $subscriptionsFile) {
+            $subCount = try { (@((Get-Content $subscriptionsFile -Raw | ConvertFrom-Json).subscriptions)).Count } catch { 0 }
+        }
+        if ($subCount -gt 0) {
+            Step "Update repo resources"
+            $updateArgs = @{}
+            if ($DryRun)   { $updateArgs['DryRun']   = $true }
+            if ($Force)    { $updateArgs['Force']     = $true }
+            if ($RepoPath) { $updateArgs['RepoPath']  = $RepoPath }
+            if ($Category) { $updateArgs['Category']  = $Category }
+            & (Join-Path $ScriptDir 'update-repo.ps1') @updateArgs
+            if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Log "update-repo failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
+        } else {
+            Log "No repo subscriptions found for $RepoPath — nothing to update." 'WARN'
+        }
+    }
+
+    Write-Host ""
+    Log "Done." 'SUCCESS'
+    exit 0
+}
+#endregion # -Update shortcut
+
 #region Step 1.5 — User-level resources
 if (-not $SkipUser) {
     $userManifestFile = "$HOME\.awesome-copilot\user-subscriptions.json"
@@ -113,7 +178,9 @@ if (-not $SkipUser) {
         if ($userSubCount -gt 0) {
             Step "Check for updates to user-level resources"
             $updateArgs = @{}
-            if ($DryRun) { $updateArgs['DryRun'] = $true }
+            if ($DryRun)   { $updateArgs['DryRun']   = $true }
+            if ($Force)    { $updateArgs['Force']     = $true }
+            if ($Category) { $updateArgs['Category']  = $Category }
             & (Join-Path $ScriptDir 'update-user.ps1') @updateArgs
         }
     } else {
@@ -158,6 +225,7 @@ if (-not $SkipUser) {
         $userArgs = @{}
         if ($DryRun)      { $userArgs['DryRun']    = $true }
         if ($Uninstall)   { $userArgs['Uninstall'] = $true }
+        if ($Category)    { $userArgs['Category']  = $Category }
         & (Join-Path $ScriptDir 'init-user.ps1') @userArgs
         if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Log "init-user failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
     } else {
@@ -167,7 +235,8 @@ if (-not $SkipUser) {
         $answer = (Read-Host).Trim()
         if ($answer -match '^[Yy]') {
             $userArgs = @{}
-            if ($DryRun) { $userArgs['DryRun'] = $true }
+            if ($DryRun)   { $userArgs['DryRun']   = $true }
+            if ($Category) { $userArgs['Category']  = $Category }
             & (Join-Path $ScriptDir 'init-user.ps1') @userArgs
             if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Log "init-user failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
         } else {
@@ -189,7 +258,9 @@ if (-not $SkipInit) {
             Step "Check for updates to subscribed repo resources"
             $updateArgs = @{}
             if ($DryRun)   { $updateArgs['DryRun']   = $true }
-            if ($RepoPath) { $updateArgs['RepoPath'] = $RepoPath }
+            if ($Force)    { $updateArgs['Force']     = $true }
+            if ($RepoPath) { $updateArgs['RepoPath']  = $RepoPath }
+            if ($Category) { $updateArgs['Category']  = $Category }
             & (Join-Path $ScriptDir 'update-repo.ps1') @updateArgs
         }
     }
@@ -204,15 +275,17 @@ if (-not $SkipInit) {
         if ($DryRun)           { $initArgs['DryRun']    = $true }
         if ($RepoPath)         { $initArgs['RepoPath']  = $RepoPath }
         if ($doRepoUninstall)  { $initArgs['Uninstall'] = $true }
+        if ($Category)         { $initArgs['Category']  = $Category }
         & (Join-Path $ScriptDir 'init-repo.ps1') @initArgs
     } else {
-        Write-Host "  Add agents/instructions/hooks/workflows/skills to .github/ in the current repo?" -ForegroundColor Yellow
+        Write-Host "  Add agents/instructions/hooks/workflows/skills/plugins to .github/ in the current repo?" -ForegroundColor Yellow
         Write-Host "  [Y] Yes   [N] No (default): " -NoNewline -ForegroundColor Yellow
         $answer = (Read-Host).Trim()
         if ($answer -match '^[Yy]') {
             $initArgs = @{}
             if ($DryRun)   { $initArgs['DryRun']   = $true }
             if ($RepoPath) { $initArgs['RepoPath'] = $RepoPath }
+            if ($Category) { $initArgs['Category'] = $Category }
             & (Join-Path $ScriptDir 'init-repo.ps1') @initArgs
         } else {
             Log "init-repo skipped."

@@ -4,18 +4,19 @@ A PowerShell toolkit to sync, install, and manage [GitHub Copilot](https://githu
 
 ## What This Does
 
-1. **Syncs** the latest agents, instructions, hooks, workflows, and skills from [awesome-copilot](https://github.com/github/awesome-copilot) into a local cache (`~/.awesome-copilot/`)
+1. **Syncs** the latest agents, instructions, hooks, workflows, skills, and plugins from [awesome-copilot](https://github.com/github/awesome-copilot) into a local cache (`~/.awesome-copilot/`)
 2. **Initialises repos** — intelligently recommends and installs resources into a repo's `.github/` folder based on detected language/framework, with full install/update/remove lifecycle management
 
 ### What goes where
 
-| Resource         | Location                |
-| ---------------- | ----------------------- |
-| **Agents**       | `.github/agents/`       |
-| **Instructions** | `.github/instructions/` |
-| **Hooks**        | `.github/hooks/<name>/` |
-| **Workflows**    | `.github/workflows/`    |
-| **Skills**       | `.github/skills/`       |
+| Resource         | Location                         |
+| ---------------- | -------------------------------- |
+| **Agents**       | `.github/agents/`                |
+| **Instructions** | `.github/instructions/`          |
+| **Hooks**        | `.github/hooks/<name>/`          |
+| **Workflows**    | `.github/workflows/`             |
+| **Skills**       | `.github/skills/`                |
+| **Plugins**      | Components distributed to their respective locations above; `plugin.json` → `.github/plugin/<name>/` |
 
 ## Prerequisites
 
@@ -56,6 +57,12 @@ cd vscode-copilot-sync
 .\configure.ps1 -Install -Scope user   # user-level only
 .\configure.ps1 -Install -Scope both   # both, no prompts
 
+# Check for and apply all upstream updates (no pickers)
+.\configure.ps1 -Update
+.\configure.ps1 -Update -Force          # skip confirmation prompts
+.\configure.ps1 -Update -Scope repo     # repo only
+.\configure.ps1 -Update -DryRun         # preview what would be updated
+
 # Sync only (no repo setup)
 .\configure.ps1 -SkipInit
 
@@ -65,7 +72,7 @@ cd vscode-copilot-sync
 
 ### 3. Configure a Repo
 
-Run from inside any repo to add agents, instructions, hooks, workflows and skills to `.github/`:
+Run from inside any repo to add agents, instructions, hooks, workflows, skills, and plugins to `.github/`:
 
 ```powershell
 cd C:\Projects\my-app
@@ -183,7 +190,28 @@ Items already installed at user level are shown with `[U]` in the repo picker �
 
 ### Keeping resources current
 
-Run this whenever you want to pull the latest upstream changes for both user-level and repo-level subscriptions.
+Run `configure.ps1 -Update` whenever you want to pull the latest upstream changes for all subscriptions in one step — it syncs the cache then checks and applies updates for both user-level and repo-level resources.
+
+```powershell
+# Sync + apply all updates (asks before writing)
+.\configure.ps1 -Update
+
+# Sync + apply all updates without prompting
+.\configure.ps1 -Update -Force
+
+# Scope to a single target
+.\configure.ps1 -Update -Scope user    # user-level subscriptions only
+.\configure.ps1 -Update -Scope repo    # repo subscriptions only
+
+# Only update a specific category
+.\configure.ps1 -Update -Category "agents"
+.\configure.ps1 -Update -Category "instructions,hooks" -Scope repo
+
+# Preview what would be updated without writing anything
+.\configure.ps1 -Update -DryRun
+```
+
+Or call the update scripts directly for more control:
 
 ```powershell
 # 1. Pull the latest from awesome-copilot into the local cache
@@ -214,6 +242,14 @@ Chains sync → user-level → repo init in one command.
 ```powershell
 .\configure.ps1                                       # Full run (sync + both prompts)
 .\configure.ps1 -Install                             # Sync + go straight to repo pickers
+.\configure.ps1 -Install -Scope repo                 # Repo pickers only, no prompt
+.\configure.ps1 -Install -Scope user                 # User pickers only, no prompt
+.\configure.ps1 -Install -Category "agents,skills"   # Only show agents + skills pickers
+.\configure.ps1 -Update                              # Sync + update all subscriptions (no pickers)
+.\configure.ps1 -Update -Scope repo                  # Repo subscriptions only
+.\configure.ps1 -Update -Force                       # Update without confirmation prompts
+.\configure.ps1 -Update -Category "instructions"     # Update only instruction subscriptions
+.\configure.ps1 -Update -DryRun                      # Preview updates without writing
 .\configure.ps1 -User                                # Sync + go straight to user-level picker
 .\configure.ps1 -SkipInit                            # Sync + user-level only
 .\configure.ps1 -SkipUser                            # Sync + repo only
@@ -269,6 +305,7 @@ Interactively selects and installs Copilot resources into `.github/`.
 .\scripts\init-repo.ps1 -DryRun                             # Preview
 .\scripts\init-repo.ps1 -Uninstall                          # Remove resources
 .\scripts\init-repo.ps1 -SkipHooks -SkipWorkflows           # Skip categories
+.\scripts\init-repo.ps1 -Category "agents,skills"           # Show only agents + skills pickers
 .\scripts\init-repo.ps1 -Agents "devops-expert,se-security-reviewer" -Instructions "powershell"
 ```
 
@@ -282,6 +319,7 @@ Reads `.github/.copilot-subscriptions.json` and applies any upstream changes fro
 .\scripts\update-repo.ps1                    # Interactive — prompts per item
 .\scripts\update-repo.ps1 -DryRun           # Show what would change
 .\scripts\update-repo.ps1 -Force            # Apply all without prompting
+.\scripts\update-repo.ps1 -Category "agents,hooks"   # Only check these categories
 .\scripts\update-repo.ps1 -RepoPath "C:\Projects\my-app"
 ```
 
@@ -311,6 +349,7 @@ This is ideal for general-purpose, tech-agnostic resources you always want activ
 .\scripts\init-user.ps1 -Bootstrap -DryRun             # Preview what bootstrap would register
 .\scripts\init-user.ps1 -SkipSkills                    # Agents + instructions only
 .\scripts\init-user.ps1 -SkipAgents -SkipInstructions  # Skills only
+.\scripts\init-user.ps1 -Category "agents,skills"      # Show only agents + skills pickers
 .\scripts\init-user.ps1 -Agents "beastmode,se-security-reviewer"
 .\scripts\init-user.ps1 -Instructions "security-and-owasp,markdown-accessibility"
 .\scripts\init-user.ps1 -Skills "refactor,create-readme"
@@ -331,6 +370,7 @@ Reads `~/.awesome-copilot/user-subscriptions.json` and refreshes installed user-
 .\scripts\update-user.ps1                    # Interactive
 .\scripts\update-user.ps1 -DryRun           # Show what would change
 .\scripts\update-user.ps1 -Force            # Apply all without prompting
+.\scripts\update-user.ps1 -Category "agents,skills"   # Only check these categories
 .\scripts\update-user.ps1 -SkillsDir "~/custom/skills"  # Non-default skills location
 ```
 
@@ -389,7 +429,7 @@ No account is needed to sync from the public `awesome-copilot` repository. The s
 VS Code Settings Sync backs up editor settings and extensions. vscode-copilot-sync manages Copilot-specific resources (agents, instructions, skills) from the community catalogue — content that Settings Sync does not cover.
 
 **How often should I run the sync?**
-Run `.\configure.ps1` whenever you want to pull upstream additions. There is no scheduled sync — you decide when to update.
+Run `.\configure.ps1 -Update` whenever you want to pull upstream additions. This syncs the cache and applies any updates to your subscriptions in one step. There is no scheduled sync — you decide when to update.
 
 ---
 
