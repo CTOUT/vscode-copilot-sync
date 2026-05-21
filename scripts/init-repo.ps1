@@ -327,7 +327,8 @@ function Select-Items {
 
     # Score each item against the detected tech keywords; recommended = score >= 2 AND no setup required.
     $Items = $Items | ForEach-Object {
-        $score = Measure-ItemRelevance -ItemName $_.Name -FilePath $_.FullPath -Tags $Tags
+        $extraKw = if ($_.PSObject.Properties['ExtraKeywords']) { @($_.ExtraKeywords) } else { @() }
+        $score = Measure-ItemRelevance -ItemName $_.Name -FilePath $_.FullPath -Tags $Tags -ExtraKeywords $extraKw
         $isRec = ($score -ge 2) -and (-not $_.RequiresSetup)
         $_ | Add-Member -NotePropertyName 'IsRecommended' -NotePropertyValue $isRec  -PassThru -Force |
              Add-Member -NotePropertyName 'Score'         -NotePropertyValue $score  -PassThru -Force
@@ -548,11 +549,15 @@ function Measure-ItemRelevance {
     Checks both the item's name (stronger signal, weight 2) and the first 30 lines of
     its content or README.md (for directories) against each keyword using word-boundary
     matching.  Returns a total score; 0 means no relevance detected.
+
+    For plugins, also accepts ExtraKeywords (plugin.json keywords + bundled component
+    name segments). Each matching extra keyword scores 2, the same weight as a name hit.
     #>
     param(
         [string]   $ItemName,
         [string]   $FilePath,
-        [string[]] $Tags
+        [string[]] $Tags,
+        [string[]] $ExtraKeywords = @()  # structured keywords (plugin.json + component names); each match scores 2
     )
 
     if (-not $Tags -or $Tags.Count -eq 0) { return 0 }
@@ -567,6 +572,14 @@ function Measure-ItemRelevance {
         # but NOT 'pythonic-tips' (partial segment match).
         $segments = $nameLower -split '-'
         if ($segments -contains $t) { $score += 2 }
+    }
+
+    # Structured keyword matches (plugin.json keywords, bundled agent/skill name segments).
+    # Treated as strong signal — same weight as a name-segment hit.
+    if ($ExtraKeywords -and $ExtraKeywords.Count -gt 0) {
+        foreach ($tag in $Tags) {
+            if ($ExtraKeywords -contains $tag.ToLower()) { $score += 2 }
+        }
     }
 
     # For directories, score against README.md / SKILL.md content
@@ -766,6 +779,39 @@ function Build-PluginCatalogue([string]$PluginsRoot, [string]$DestDir) {
             $desc = ($desc + " [$($componentSummary -join ', ')]").TrimStart()
         }
 
+        # Collect structured keywords for relevance scoring.
+        # Sources: plugin.json keywords array + bundled agent/skill name segments.
+        # These are used by Measure-ItemRelevance as high-weight signals (same as name-segment hits).
+        $extraKeywords = [System.Collections.Generic.List[string]]::new()
+        if (Test-Path $pluginJsonSrc) {
+            try {
+                $pj = Get-Content $pluginJsonSrc -Raw | ConvertFrom-Json
+                if ($pj.keywords) {
+                    foreach ($kw in $pj.keywords) {
+                        $kwLower = $kw.ToLower()
+                        if (-not $extraKeywords.Contains($kwLower)) { $extraKeywords.Add($kwLower) }
+                        # Also add individual dash-segments so "github-actions" matches tag "github-actions"
+                        # AND individual tags "github" or "actions"
+                        foreach ($seg in ($kwLower -split '-')) {
+                            if ($seg -and -not $extraKeywords.Contains($seg)) { $extraKeywords.Add($seg) }
+                        }
+                    }
+                }
+            } catch {}
+        }
+        # Bundled agent/skill names contain tech signals (e.g. "azure-deploy.agent.md" → "azure", "deploy")
+        foreach ($agentFile in $agentFiles) {
+            $stem = $agentFile.Name -replace '\.agent\.md$', ''
+            foreach ($seg in ($stem.ToLower() -split '-')) {
+                if ($seg -and -not $extraKeywords.Contains($seg)) { $extraKeywords.Add($seg) }
+            }
+        }
+        foreach ($skillDir in $skillDirs) {
+            foreach ($seg in ($skillDir.Name.ToLower() -split '-')) {
+                if ($seg -and -not $extraKeywords.Contains($seg)) { $extraKeywords.Add($seg) }
+            }
+        }
+
         [pscustomobject]@{
             Name             = $pluginName
             FullPath         = $pluginDir
@@ -780,6 +826,7 @@ function Build-PluginCatalogue([string]$PluginsRoot, [string]$DestDir) {
             HasPluginJson    = $hasPluginJson
             PluginJsonSrc    = $pluginJsonSrc
             ComponentCount   = $componentCount
+            ExtraKeywords    = @($extraKeywords)
         }
     } | Sort-Object Name
 }
