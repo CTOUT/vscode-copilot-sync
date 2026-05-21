@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Plugin support** — full lifecycle management for the new `plugins/` category in `github/awesome-copilot`. Plugins are curated bundles (agents + skills + `plugin.json`) maintained as named subdirectories.
+  - `scripts/sync-awesome-copilot.ps1`: `plugins` added to the default `$Categories` sparse-checkout list.
+  - `scripts/init-repo.ps1`: `-Plugins` / `-SkipPlugins` params; `Build-PluginCatalogue` function; `#region Plugins` install/uninstall block. Subscription tracking uses `type='plugin'` with a `components` array (`agent`, `skill`, `pluginJson`). Files distributed to: agents → `.github/agents/`, skills → `.github/skills/`, manifest → `.github/plugin/<name>/plugin.json` (namespaced). `ConvertTo-Json -Depth` bumped 5 → 8 throughout.
+  - `scripts/update-repo.ps1`: `plugin` type branches in stale-check and apply-updates loops; depth bump.
+  - `README.md`: Plugins row added to "What goes where" table; description and local cache structure updated.
+- **Plugin recommendation scoring** — `Build-PluginCatalogue` now parses each plugin's `plugin.json` `keywords` array and extracts dash-segment tokens from bundled agent/skill names, storing them as `ExtraKeywords`. `Measure-ItemRelevance` gains `-ExtraKeywords`; each match scores +2 (same weight as a name-segment hit). `Select-Items` threads `ExtraKeywords` through when present. Plugins like `azure-cloud-development` are correctly starred ★ on Azure/IaC repos even when the plugin name alone yields insufficient signal. Non-plugin categories are unaffected.
+- **`configure.ps1 -Update`** — runs sync + update scripts only (no interactive pickers). Works with `-Scope` (repo/user/both), `-Force`, `-DryRun`, and `-Category`.
+- **`configure.ps1 -Force`** — passes `-Force` to `update-user.ps1` / `update-repo.ps1`, suppressing the interactive confirmation prompt. Useful for scripted/CI runs.
+- **`-Category` param** (all five scripts) — comma-separated filter controlling which resource types are processed. Examples: `configure.ps1 -Update -Category "agents"`, `init-repo.ps1 -Category "hooks,workflows"`, `update-user.ps1 -Category "skills"`. Translates to internal `-Skip*` flags in `init-repo.ps1` and `init-user.ps1`; filters subscription list before stale-check loop in the update scripts.
+
+### Changed
+
+- `configure.ps1`: `-Force` and `-Category` threaded through to `update-user.ps1` and `update-repo.ps1` in both the auto-update pre-check (Steps 1.5 / 2) and the new `-Update` shortcut.
+- `configure.ps1`: `-Category` threaded through to `init-user.ps1` and `init-repo.ps1` during install and uninstall flows.
+
 ## [2.1.0] - 2026-05-01
 
 ### Added

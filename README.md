@@ -128,6 +128,7 @@ Locally modified files are flagged with `[~]` before removal so you don't accide
 ├── workflows/             # *.md
 ├── hooks/                 # <hook-name>/ directories
 ├── skills/                # <skill-name>/ directories
+├── plugins/               # <plugin-name>/ directories (agents + skills + plugin.json)
 └── manifest.json          # Sync state (hashes, timestamps, counts)
 ```
 
@@ -254,9 +255,9 @@ Chains sync → user-level → repo init in one command.
 .\configure.ps1 -SkipInit                            # Sync + user-level only
 .\configure.ps1 -SkipUser                            # Sync + repo only
 .\configure.ps1 -SkipSync                            # Repo init only (no sync)
-.\configure.ps1 -Uninstall repo                      # Remove repo .github/ resources
-.\configure.ps1 -Uninstall user                      # Remove user-level resources
-.\configure.ps1 -Uninstall both                      # Remove both in one pass
+.\configure.ps1 -Uninstall -Scope repo               # Remove repo .github/ resources
+.\configure.ps1 -Uninstall -Scope user               # Remove user-level resources
+.\configure.ps1 -Uninstall                           # Remove both repo + user resources
 .\configure.ps1 -RepoPath "C:\Projects\my-app"      # Target specific repo
 .\configure.ps1 -DryRun                              # Preview all changes
 ```

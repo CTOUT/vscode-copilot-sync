@@ -2,7 +2,7 @@ cff-version: 1.2.0
 title: VS Code Copilot Resource Sync
 message: "If you use or reference vscode-copilot-sync, please cite it as below."
 type: software
-version: 2.1.0
+version: 2.2.0-dev
 date-released: "2026-05-01"
 authors:
   - family-names: Tout
@@ -12,8 +12,10 @@ repository-code: https://github.com/CTOUT/vscode-copilot-sync
 url: https://github.com/CTOUT/vscode-copilot-sync
 abstract: >
   A PowerShell toolkit to sync, install, and manage GitHub Copilot agents,
-  instructions, hooks, skills, and workflows from the awesome-copilot community
-  catalogue into VS Code. Works on Windows, macOS, and Linux via PowerShell 7+.
+  instructions, hooks, skills, workflows, and plugins from the awesome-copilot
+  community catalogue into VS Code. Full lifecycle management — install, update,
+  and remove — tracked via subscription manifests. Works on Windows, macOS, and
+  Linux via PowerShell 7+.
 keywords:
   - github-copilot
   - vscode
@@ -21,4 +23,5 @@ keywords:
   - developer-tools
   - automation
   - awesome-copilot
+  - plugins
 license: MIT
