@@ -28,6 +28,7 @@ Thumbs.db
 .github/hooks/
 .github/instructions/
 .github/skills/
+.github/plugin/
 # Only ignore copilot agentic workflow .md files — not GitHub Actions .yml files
 .github/workflows/*.md
 # Subscription tracking manifest (local state, not redistributed)
