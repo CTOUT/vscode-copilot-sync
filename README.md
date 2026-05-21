@@ -1,10 +1,10 @@
 # VS Code Copilot Resource Sync
 
-A PowerShell toolkit to sync, install, and manage [GitHub Copilot](https://github.com/features/copilot) agents, instructions, hooks, skills, and workflows from the [awesome-copilot](https://github.com/github/awesome-copilot) community catalogue — cherry-picking exactly what each repo needs, with full lifecycle management. Works on Windows, macOS, and Linux.
+A PowerShell toolkit to sync, install, and manage [GitHub Copilot](https://github.com/features/copilot) agents, hooks, instructions, plugins, skills, and workflows from the [awesome-copilot](https://github.com/github/awesome-copilot) community catalogue — cherry-picking exactly what each repo needs, with full lifecycle management. Works on Windows, macOS, and Linux.
 
 ## What This Does
 
-1. **Syncs** the latest agents, instructions, hooks, workflows, skills, and plugins from [awesome-copilot](https://github.com/github/awesome-copilot) into a local cache (`~/.awesome-copilot/`)
+1. **Syncs** the latest agents, hooks, instructions, plugins, skills, and workflows from [awesome-copilot](https://github.com/github/awesome-copilot) into a local cache (`~/.awesome-copilot/`)
 2. **Initialises repos** — intelligently recommends and installs resources into a repo's `.github/` folder based on detected language/framework, with full install/update/remove lifecycle management
 
 ### What goes where
@@ -12,11 +12,11 @@ A PowerShell toolkit to sync, install, and manage [GitHub Copilot](https://githu
 | Resource         | Location                         |
 | ---------------- | -------------------------------- |
 | **Agents**       | `.github/agents/`                |
-| **Instructions** | `.github/instructions/`          |
 | **Hooks**        | `.github/hooks/<name>/`          |
-| **Workflows**    | `.github/workflows/`             |
-| **Skills**       | `.github/skills/`                |
+| **Instructions** | `.github/instructions/`          |
 | **Plugins**      | Components distributed to their respective locations above; `plugin.json` → `.github/plugin/<name>/` |
+| **Skills**       | `.github/skills/`                |
+| **Workflows**    | `.github/workflows/`             |
 
 ## Prerequisites
 
@@ -72,7 +72,7 @@ cd vscode-copilot-sync
 
 ### 3. Configure a Repo
 
-Run from inside any repo to add agents, instructions, hooks, workflows, skills, and plugins to `.github/`:
+Run from inside any repo to add agents, hooks, instructions, plugins, skills, and workflows to `.github/`:
 
 ```powershell
 cd C:\Projects\my-app
@@ -268,7 +268,7 @@ Chains sync → user-level → repo init in one command.
 
 Clones (first run) or pulls (subsequent runs) `github/awesome-copilot` as a sparse git checkout.
 
-- Only downloads the categories you need (`agents`, `instructions`, `workflows`, `hooks`, `skills` by default)
+- Only downloads the categories you need (`agents`, `hooks`, `instructions`, `plugins`, `skills`, `workflows` by default)
 - SHA256 hash manifest tracks added/updated/removed counts across runs
 - Auto-recovers from merge conflicts in the local cache
 - Prefers `gh` CLI for auth; falls back to `git`
@@ -415,7 +415,7 @@ Get-ChildItem .\scripts\logs\sync-*.log | Sort-Object LastWriteTime -Descending 
 ## FAQ
 
 **What is awesome-copilot?**
-[awesome-copilot](https://github.com/github/awesome-copilot) is the community-maintained catalogue of GitHub Copilot resources — agents, instructions, skills, hooks, and workflows contributed by hundreds of developers. vscode-copilot-sync makes it easy to cherry-pick and manage resources from that catalogue.
+[awesome-copilot](https://github.com/github/awesome-copilot) is the community-maintained catalogue of GitHub Copilot resources — agents, hooks, instructions, skills, and workflows contributed by hundreds of developers. vscode-copilot-sync makes it easy to cherry-pick and manage resources from that catalogue.
 
 **Does vscode-copilot-sync work on macOS and Linux?**
 Yes. All scripts run on PowerShell 7+ (`pwsh`), which is available for Windows, macOS, and Linux. The only Windows-specific feature is `Out-GridView`; on other platforms the scripts fall back to a numbered console menu automatically.

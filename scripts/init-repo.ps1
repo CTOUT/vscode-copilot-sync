@@ -7,10 +7,11 @@ awesome-copilot cache into a target repository's .github/ folder.
 Resources installed here are project-specific (opt-in) rather than global:
 
   Agents        --> .github/agents/*.agent.md
-  Instructions  --> .github/instructions/*.instructions.md
   Hooks         --> .github/hooks/<hook-name>/   (full directory)
-  Workflows     --> .github/workflows/*.md
+  Instructions  --> .github/instructions/*.instructions.md
+  Plugins       --> .github/plugin/<name>/plugin.json  + bundled agents/skills
   Skills        --> .github/skills/<skill-name>/  (full directory)
+  Workflows     --> .github/workflows/*.md
 
 Usage:
   # Interactive - run from within the target repo
@@ -55,19 +56,19 @@ Notes:
 [CmdletBinding()] param(
     [string]$RepoPath      = (Get-Location).Path,
     [string]$SourceRoot    = "$HOME/.awesome-copilot",
-    [string]$Instructions  = '',   # Comma-separated names to pre-select (non-interactive)
     [string]$Agents        = '',
     [string]$Hooks         = '',
-    [string]$Workflows     = '',
-    [string]$Skills        = '',   # Comma-separated names to pre-select (non-interactive)
+    [string]$Instructions  = '',   # Comma-separated names to pre-select (non-interactive)
     [string]$Plugins       = '',   # Comma-separated plugin names to pre-select (non-interactive)
+    [string]$Skills        = '',   # Comma-separated names to pre-select (non-interactive)
+    [string]$Workflows     = '',
     [string]$Category      = '',   # Comma-separated categories to process; all others skipped (e.g. 'agents,skills')
-    [switch]$SkipInstructions,
     [switch]$SkipAgents,
     [switch]$SkipHooks,
-    [switch]$SkipWorkflows,
-    [switch]$SkipSkills,
+    [switch]$SkipInstructions,
     [switch]$SkipPlugins,
+    [switch]$SkipSkills,
+    [switch]$SkipWorkflows,
     [string]$UserPromptsDir = "$env:APPDATA\Code\User\prompts",  # used to flag agents already installed globally
     [switch]$DryRun,
     [switch]$Uninstall   # show a picker of installed items to remove instead of installing
@@ -79,7 +80,7 @@ $ErrorActionPreference = 'Stop'
 # -Category: translate to Skip* flags (only the listed categories are processed)
 if ($Category) {
     $wantedCats = @($Category.ToLower() -split '\s*,\s*' | Where-Object { $_ -ne '' })
-    foreach ($cat in @('agents','instructions','hooks','workflows','skills','plugins')) {
+    foreach ($cat in @('agents','hooks','instructions','plugins','skills','workflows')) {
         if ($cat -notin $wantedCats) {
             Set-Variable -Name "Skip$(([System.Globalization.CultureInfo]::InvariantCulture).TextInfo.ToTitleCase($cat))" -Value $true
         }
@@ -876,11 +877,11 @@ function Should-LoadCatalogue([string]$Category, [string]$DestDir, [switch]$IsSk
 
 Log "Loading resource catalogues..."
 $catAgents       = if (Should-LoadCatalogue 'agents'       (Join-Path $GithubDir 'agents')       -IsSkipped:$SkipAgents)       { Build-FlatCatalogue (Join-Path $SourceRoot 'agents')       (Join-Path $GithubDir 'agents')       '\.agent\.md$'        'agents'       $UserPromptsDir } else { @() }
-$catInstructions = if (Should-LoadCatalogue 'instructions' (Join-Path $GithubDir 'instructions') -IsSkipped:$SkipInstructions) { Build-FlatCatalogue (Join-Path $SourceRoot 'instructions') (Join-Path $GithubDir 'instructions') '\.instructions\.md$' 'instructions' $UserPromptsDir } else { @() }
 $catHooks        = if (Should-LoadCatalogue 'hooks'        (Join-Path $GithubDir 'hooks')        -IsSkipped:$SkipHooks)        { Build-DirCatalogue  (Join-Path $SourceRoot 'hooks')        (Join-Path $GithubDir 'hooks')                               'hooks'        } else { @() }
-$catWorkflows    = if (Should-LoadCatalogue 'workflows'    (Join-Path $GithubDir 'workflows')    -IsSkipped:$SkipWorkflows)    { Build-FlatCatalogue (Join-Path $SourceRoot 'workflows')    (Join-Path $GithubDir 'workflows')    '\.md$'               'workflows'    } else { @() }
-$catSkills       = if (Should-LoadCatalogue 'skills'       (Join-Path $GithubDir 'skills')       -IsSkipped:$SkipSkills)       { Build-DirCatalogue  (Join-Path $SourceRoot 'skills')       (Join-Path $GithubDir 'skills')                              'skills'       } else { @() }
+$catInstructions = if (Should-LoadCatalogue 'instructions' (Join-Path $GithubDir 'instructions') -IsSkipped:$SkipInstructions) { Build-FlatCatalogue (Join-Path $SourceRoot 'instructions') (Join-Path $GithubDir 'instructions') '\.instructions\.md$' 'instructions' $UserPromptsDir } else { @() }
 $catPlugins      = if (-not $SkipPlugins) { Build-PluginCatalogue (Join-Path $SourceRoot 'plugins') $GithubDir } else { @() }
+$catSkills       = if (Should-LoadCatalogue 'skills'       (Join-Path $GithubDir 'skills')       -IsSkipped:$SkipSkills)       { Build-DirCatalogue  (Join-Path $SourceRoot 'skills')       (Join-Path $GithubDir 'skills')                              'skills'       } else { @() }
+$catWorkflows    = if (Should-LoadCatalogue 'workflows'    (Join-Path $GithubDir 'workflows')    -IsSkipped:$SkipWorkflows)    { Build-FlatCatalogue (Join-Path $SourceRoot 'workflows')    (Join-Path $GithubDir 'workflows')    '\.md$'               'workflows'    } else { @() }
 Log "Catalogues loaded. Opening pickers..."
 
 #endregion # Pre-load all catalogues
@@ -927,45 +928,6 @@ if (-not $SkipAgents) {
 
 #endregion # Agents
 
-#region Instructions
-if (-not $SkipInstructions) {
-    $destDir  = Join-Path $GithubDir 'instructions'
-    $catalogue = $catInstructions
-    $script:AllCatalogues.Add([pscustomobject]@{ Category='instructions'; Type='file'; Items=$catalogue; DestDir=$destDir })
-
-    if ($Uninstall) {
-        $toRemove = Select-ToRemove -Category 'Instructions' -Items $catalogue
-        foreach ($item in $toRemove) {
-            $result = Remove-File -FilePath (Join-Path $destDir $item.FileName)
-            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
-            Log "$verb  instructions: $($item.FileName)"
-        }
-        if ($toRemove.Count -gt 0) {
-            Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "instructions|$($_.Name)" })
-        }
-    } else {
-        $selected  = Select-Items -Category 'Instructions' -Items $catalogue -PreSelected $Instructions -Tags $script:Recommendations
-
-        foreach ($item in $selected) {
-            $result = Install-File -Src $item.FullPath -DestDir $destDir
-            $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
-            Log "$verb  instructions: $($item.FileName)"
-            if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
-            $script:SubscriptionEntries.Add([pscustomobject]@{
-                name          = $item.Name
-                category      = 'instructions'
-                type          = 'file'
-                fileName      = $item.FileName
-                sourceRelPath = "instructions/$($item.FileName)"
-                hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
-                installedAt   = (Get-Date).ToString('o')
-            })
-        }
-    }
-}
-
-#endregion # Instructions
-
 #region Hooks
 if (-not $SkipHooks) {
     $destDir   = Join-Path $GithubDir 'hooks'
@@ -1005,36 +967,36 @@ if (-not $SkipHooks) {
 
 #endregion # Hooks
 
-#region Workflows
-if (-not $SkipWorkflows) {
-    $destDir  = Join-Path $GithubDir 'workflows'
-    $catalogue = $catWorkflows
-    $script:AllCatalogues.Add([pscustomobject]@{ Category='workflows'; Type='file'; Items=$catalogue; DestDir=$destDir })
+#region Instructions
+if (-not $SkipInstructions) {
+    $destDir  = Join-Path $GithubDir 'instructions'
+    $catalogue = $catInstructions
+    $script:AllCatalogues.Add([pscustomobject]@{ Category='instructions'; Type='file'; Items=$catalogue; DestDir=$destDir })
 
     if ($Uninstall) {
-        $toRemove = Select-ToRemove -Category 'Agentic Workflows' -Items $catalogue
+        $toRemove = Select-ToRemove -Category 'Instructions' -Items $catalogue
         foreach ($item in $toRemove) {
             $result = Remove-File -FilePath (Join-Path $destDir $item.FileName)
             $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
-            Log "$verb  workflow: $($item.FileName)"
+            Log "$verb  instructions: $($item.FileName)"
         }
         if ($toRemove.Count -gt 0) {
-            Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "workflows|$($_.Name)" })
+            Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "instructions|$($_.Name)" })
         }
     } else {
-        $selected  = Select-Items -Category 'Agentic Workflows' -Items $catalogue -PreSelected $Workflows -Tags $script:Recommendations
+        $selected  = Select-Items -Category 'Instructions' -Items $catalogue -PreSelected $Instructions -Tags $script:Recommendations
 
         foreach ($item in $selected) {
             $result = Install-File -Src $item.FullPath -DestDir $destDir
             $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
-            Log "$verb  workflow: $($item.FileName)"
+            Log "$verb  instructions: $($item.FileName)"
             if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
             $script:SubscriptionEntries.Add([pscustomobject]@{
                 name          = $item.Name
-                category      = 'workflows'
+                category      = 'instructions'
                 type          = 'file'
                 fileName      = $item.FileName
-                sourceRelPath = "workflows/$($item.FileName)"
+                sourceRelPath = "instructions/$($item.FileName)"
                 hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
                 installedAt   = (Get-Date).ToString('o')
             })
@@ -1042,46 +1004,7 @@ if (-not $SkipWorkflows) {
     }
 }
 
-#endregion # Workflows
-
-#region Skills
-if (-not $SkipSkills) {
-    $destDir   = Join-Path $GithubDir 'skills'
-    $catalogue = $catSkills
-    $script:AllCatalogues.Add([pscustomobject]@{ Category='skills'; Type='directory'; Items=$catalogue; DestDir=$destDir })
-
-    if ($Uninstall) {
-        $toRemove = Select-ToRemove -Category 'Skills' -Items $catalogue
-        foreach ($item in $toRemove) {
-            $result = Remove-Directory -DirPath (Join-Path $destDir $item.Name)
-            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
-            Log "$verb  skill: $($item.Name)"
-        }
-        if ($toRemove.Count -gt 0) {
-            Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "skills|$($_.Name)" })
-        }
-    } else {
-        $selected  = Select-Items -Category 'Skills' -Items $catalogue -PreSelected $Skills -Tags $script:Recommendations
-
-        foreach ($item in $selected) {
-            $r = Install-Directory -SrcDir $item.FullPath -DestParent $destDir
-            $verb = if ($DryRun) { '~ DryRun' } else { '✓ Installed' }
-            Log "$verb  skill: $($item.Name) (added=$($r.Added) updated=$($r.Updated) unchanged=$($r.Unchanged))"
-            if (-not $DryRun) { $totalInstalled++ }
-            $script:SubscriptionEntries.Add([pscustomobject]@{
-                name          = $item.Name
-                category      = 'skills'
-                type          = 'directory'
-                dirName       = $item.Name
-                sourceRelPath = "skills/$($item.Name)"
-                hashAtInstall = Get-DirHash $item.FullPath
-                installedAt   = (Get-Date).ToString('o')
-            })
-        }
-    }
-}
-
-#endregion # Skills
+#endregion # Instructions
 
 #region Plugins
 
@@ -1198,6 +1121,84 @@ if (-not $SkipPlugins) {
 
 #endregion # Plugins
 
+#region Skills
+if (-not $SkipSkills) {
+    $destDir   = Join-Path $GithubDir 'skills'
+    $catalogue = $catSkills
+    $script:AllCatalogues.Add([pscustomobject]@{ Category='skills'; Type='directory'; Items=$catalogue; DestDir=$destDir })
+
+    if ($Uninstall) {
+        $toRemove = Select-ToRemove -Category 'Skills' -Items $catalogue
+        foreach ($item in $toRemove) {
+            $result = Remove-Directory -DirPath (Join-Path $destDir $item.Name)
+            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+            Log "$verb  skill: $($item.Name)"
+        }
+        if ($toRemove.Count -gt 0) {
+            Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "skills|$($_.Name)" })
+        }
+    } else {
+        $selected  = Select-Items -Category 'Skills' -Items $catalogue -PreSelected $Skills -Tags $script:Recommendations
+
+        foreach ($item in $selected) {
+            $r = Install-Directory -SrcDir $item.FullPath -DestParent $destDir
+            $verb = if ($DryRun) { '~ DryRun' } else { '✓ Installed' }
+            Log "$verb  skill: $($item.Name) (added=$($r.Added) updated=$($r.Updated) unchanged=$($r.Unchanged))"
+            if (-not $DryRun) { $totalInstalled++ }
+            $script:SubscriptionEntries.Add([pscustomobject]@{
+                name          = $item.Name
+                category      = 'skills'
+                type          = 'directory'
+                dirName       = $item.Name
+                sourceRelPath = "skills/$($item.Name)"
+                hashAtInstall = Get-DirHash $item.FullPath
+                installedAt   = (Get-Date).ToString('o')
+            })
+        }
+    }
+}
+
+#endregion # Skills
+
+#region Workflows
+if (-not $SkipWorkflows) {
+    $destDir  = Join-Path $GithubDir 'workflows'
+    $catalogue = $catWorkflows
+    $script:AllCatalogues.Add([pscustomobject]@{ Category='workflows'; Type='file'; Items=$catalogue; DestDir=$destDir })
+
+    if ($Uninstall) {
+        $toRemove = Select-ToRemove -Category 'Agentic Workflows' -Items $catalogue
+        foreach ($item in $toRemove) {
+            $result = Remove-File -FilePath (Join-Path $destDir $item.FileName)
+            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+            Log "$verb  workflow: $($item.FileName)"
+        }
+        if ($toRemove.Count -gt 0) {
+            Remove-SubscriptionEntries -ManifestPath $SubscriptionManifestPath -Keys @($toRemove | ForEach-Object { "workflows|$($_.Name)" })
+        }
+    } else {
+        $selected  = Select-Items -Category 'Agentic Workflows' -Items $catalogue -PreSelected $Workflows -Tags $script:Recommendations
+
+        foreach ($item in $selected) {
+            $result = Install-File -Src $item.FullPath -DestDir $destDir
+            $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
+            Log "$verb  workflow: $($item.FileName)"
+            if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
+            $script:SubscriptionEntries.Add([pscustomobject]@{
+                name          = $item.Name
+                category      = 'workflows'
+                type          = 'file'
+                fileName      = $item.FileName
+                sourceRelPath = "workflows/$($item.FileName)"
+                hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
+                installedAt   = (Get-Date).ToString('o')
+            })
+        }
+    }
+}
+
+#endregion # Workflows
+
 #region Summary
 
 # Auto-adopt items that are already installed in .github/ but not yet in the manifest
@@ -1250,7 +1251,7 @@ if ($Uninstall) {
     Log "Dry run complete. Re-run without -DryRun to apply." 'WARN'
 } else {
     Log "$totalInstalled resource(s) installed/updated in $GithubDir" 'SUCCESS'
-    Log "Tip: commit .github/ to share Copilot resources with your team (agents, instructions, hooks, workflows, skills, plugins)."
+    Log "Tip: commit .github/ to share Copilot resources with your team (agents, hooks, instructions, plugins, skills, workflows)."
     Log "Tip: run update-repo.ps1 to check for and apply upstream changes to your subscribed resources."
     Log "Tip: run init-repo.ps1 -Uninstall to remove any installed resources."
 }

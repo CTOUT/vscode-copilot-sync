@@ -69,7 +69,7 @@ $cacheDir = 'C:\Users\Someone\.awesome-copilot'
 
 - `-DryRun` / `-Plan` — preview without writing
 - `-Skip*` switches (e.g. `-SkipAgents`, `-SkipHooks`) — granular opt-out
-- Comma-separated strings for lists: `[string]$Categories = 'agents,instructions,workflows,hooks,skills'`
+- Comma-separated strings for lists: `[string]$Categories = 'agents,hooks,instructions,skills,workflows'`
 - Default paths always use `$HOME` or `$env:APPDATA`
 
 ## External Dependencies

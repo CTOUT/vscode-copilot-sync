@@ -60,7 +60,7 @@ Usage:
     [switch]$Force,         # Skip update confirmation prompt (passes -Force to update scripts)
     [ValidateSet('repo', 'user', 'both')]
     [string]$Scope = '',    # Scope for -Install, -Uninstall, or -Update: 'repo', 'user', or 'both'
-    [string]$Category = '', # Comma-separated categories to process: agents,instructions,hooks,workflows,skills,plugins
+    [string]$Category = '', # Comma-separated categories to process: agents,hooks,instructions,plugins,skills,workflows
     [switch]$User,          # Backwards-compat alias for: -Install -Scope user
     [Parameter(Position = 0)]
     [string]$RepoPath = (Get-Location).Path,
@@ -278,7 +278,7 @@ if (-not $SkipInit) {
         if ($Category)         { $initArgs['Category']  = $Category }
         & (Join-Path $ScriptDir 'init-repo.ps1') @initArgs
     } else {
-        Write-Host "  Add agents/instructions/hooks/workflows/skills/plugins to .github/ in the current repo?" -ForegroundColor Yellow
+        Write-Host "  Add agents/hooks/instructions/plugins/skills/workflows to .github/ in the current repo?" -ForegroundColor Yellow
         Write-Host "  [Y] Yes   [N] No (default): " -NoNewline -ForegroundColor Yellow
         $answer = (Read-Host).Trim()
         if ($answer -match '^[Yy]') {

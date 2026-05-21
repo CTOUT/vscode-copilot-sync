@@ -24,7 +24,7 @@ Usage:
 #>
 [CmdletBinding()] param(
     [string]$Dest = "$HOME/.awesome-copilot",
-    [string]$Categories = 'agents,instructions,workflows,hooks,skills,plugins',
+    [string]$Categories = 'agents,hooks,instructions,plugins,skills,workflows',
     [switch]$Quiet,
     [switch]$Plan,              # Dry-run: show what would change without writing files
     [switch]$Force,             # Skip structural-change and mass-removal safety checks

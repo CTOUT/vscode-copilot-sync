@@ -1,6 +1,6 @@
 # VS Code Copilot Resource Sync
 
-> PowerShell toolkit to sync and manage GitHub Copilot agents, instructions, skills, hooks, workflows, and plugins from the awesome-copilot community catalogue.
+> PowerShell toolkit to sync and manage GitHub Copilot agents, hooks, instructions, plugins, skills, and workflows from the awesome-copilot community catalogue.
 
 vscode-copilot-sync is an open-source PowerShell toolkit (MIT licence) that makes it easy to
 cherry-pick and lifecycle-manage resources from github/awesome-copilot into VS Code.
