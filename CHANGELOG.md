@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `configure.ps1`: `-Force` and `-Category` threaded through to `update-user.ps1` and `update-repo.ps1` in both the auto-update pre-check (Steps 1.5 / 2) and the new `-Update` shortcut.
 - `configure.ps1`: `-Category` threaded through to `init-user.ps1` and `init-repo.ps1` during install and uninstall flows.
+- **Alphabetical category ordering** — all category lists, operation sequences, and text outputs now consistently use the order: `agents, hooks, instructions, plugins, skills, workflows`. Affects picker execution order in `init-repo.ps1`, default `$Categories` in `sync-awesome-copilot.ps1`, prompt strings in `configure.ps1`, the "What goes where" table in `README.md`, and every category mention across all docs.
+- **`.gitignore`**: Added `.github/plugin/` alongside the other awesome-copilot-sourced resource folders (agents, hooks, instructions, skills, workflows) so plugin manifests installed into this repo's own `.github/` are never accidentally committed.
 
 ## [2.1.0] - 2026-05-01
 
