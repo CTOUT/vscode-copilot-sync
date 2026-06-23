@@ -9,14 +9,14 @@ A PowerShell toolkit to sync, install, and manage [GitHub Copilot](https://githu
 
 ### What goes where
 
-| Resource         | Location                         |
-| ---------------- | -------------------------------- |
-| **Agents**       | `.github/agents/`                |
-| **Hooks**        | `.github/hooks/<name>/`          |
-| **Instructions** | `.github/instructions/`          |
+| Resource         | Location                                                                                             |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| **Agents**       | `.github/agents/`                                                                                    |
+| **Hooks**        | `.github/hooks/<name>/`                                                                              |
+| **Instructions** | `.github/instructions/`                                                                              |
 | **Plugins**      | Components distributed to their respective locations above; `plugin.json` → `.github/plugin/<name>/` |
-| **Skills**       | `.github/skills/`                |
-| **Workflows**    | `.github/workflows/`             |
+| **Skills**       | `.github/skills/`                                                                                    |
+| **Workflows**    | `.github/workflows/`                                                                                 |
 
 ## Prerequisites
 

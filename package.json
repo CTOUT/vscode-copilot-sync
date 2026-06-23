@@ -1,0 +1,10 @@
+{
+  "scripts": {
+    "spellcheck": "cspell \"**/*.md\" \"**/*.ps1\" \"**/*.sh\" \"**/*.yml\" \"**/*.json\"",
+    "format": "prettier --write \"**/*.{md,json,yml,yaml}\""
+  },
+  "devDependencies": {
+    "cspell": "^10.0.0",
+    "prettier": "^3.8.4"
+  }
+}
