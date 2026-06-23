@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+---
+
+## [v2.3.0] — 2026-06-23
+
+### Added
+- Standardized repository configurations (.editorconfig, Prettier)
+- Automated CSpell dictionaries and validation workflows
+- Automated GitHub Release workflows
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
