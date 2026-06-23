@@ -2,9 +2,9 @@ name: PSScriptAnalyzer
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   analyze:
@@ -18,11 +18,11 @@ jobs:
           $results = Invoke-ScriptAnalyzer -Path . -Recurse -ExcludeRule PSAvoidUsingWriteHost,PSAvoidUsingCmdletAliases,PSUseShouldProcessForStateChangingFunctions
           $errors = $results | Where-Object Severity -eq 'Error'
           $warnings = $results | Where-Object Severity -eq 'Warning'
-          
+
           if ($results) {
             $results | Format-Table -Property RuleName, Severity, ScriptName, Line, Message -AutoSize
           }
-          
+
           if ($errors) {
             Write-Error "PSScriptAnalyzer found errors."
             exit 1
