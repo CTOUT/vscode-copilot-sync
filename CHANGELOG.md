@@ -7,6 +7,7 @@
 ## [v2.3.0] — 2026-06-23
 
 ### Added
+
 - Standardized repository configurations (.editorconfig, Prettier)
 - Automated CSpell dictionaries and validation workflows
 - Automated GitHub Release workflows
