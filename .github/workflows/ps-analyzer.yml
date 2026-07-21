@@ -2,28 +2,35 @@ name: PSScriptAnalyzer
 
 on:
   push:
-    branches: [main]
+    paths:
+      - "**.ps1"
+      - "**.psm1"
+      - "**.psd1"
   pull_request:
-    branches: [main]
+    paths:
+      - "**.ps1"
+      - "**.psm1"
+      - "**.psd1"
+  workflow_dispatch:
 
 jobs:
-  analyze:
+  lint:
+    name: PSScriptAnalyzer
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          if (Test-Path node_modules) { Remove-Item -Recurse -Force node_modules }
-          $results = Invoke-ScriptAnalyzer -Path . -Recurse -ExcludeRule PSAvoidUsingWriteHost,PSAvoidUsingCmdletAliases,PSUseShouldProcessForStateChangingFunctions
-          $errors = $results | Where-Object Severity -eq 'Error'
-          $warnings = $results | Where-Object Severity -eq 'Warning'
-
-          if ($results) {
-            $results | Format-Table -Property RuleName, Severity, ScriptName, Line, Message -AutoSize
-          }
-
-          if ($errors) {
-            Write-Error "PSScriptAnalyzer found errors."
-            exit 1
+          $psFiles = Get-ChildItem -Recurse -Include *.ps1, *.psm1, *.psd1 -Exclude node_modules, bin, obj
+          if ($psFiles) {
+            Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+            $results = Invoke-ScriptAnalyzer -Path $psFiles.FullName -Recurse
+            $errors = $results | Where-Object { $_.Severity -eq 'Error' }
+            if ($errors) {
+              $errors | Format-Table
+              exit 1
+            }
+          } else {
+            Write-Host "No PowerShell files found to analyze."
           }

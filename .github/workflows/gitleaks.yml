@@ -1,14 +1,13 @@
-name: Gitleaks
+name: gitleaks
 
 on:
-  push:
-    branches: [main]
   pull_request:
-    branches: [main]
+  push:
+  workflow_dispatch:
 
 jobs:
   scan:
-    name: Gitleaks
+    name: gitleaks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

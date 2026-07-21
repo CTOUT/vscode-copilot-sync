@@ -1,30 +1,16 @@
-name: Format
+name: Format check
 
 on:
-  pull_request:
   push:
-    branches:
-      - main
-
-permissions:
-  contents: read
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   format:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run prettier format check
-        run: npx prettier --check "**/*.{md,json,yml,yaml}"
+          node-version: 20
+      - run: npx prettier --check "."
