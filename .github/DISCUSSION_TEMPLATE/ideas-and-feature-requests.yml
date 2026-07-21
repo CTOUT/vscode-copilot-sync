@@ -1,0 +1,17 @@
+name: Ideas & Feature Requests
+description: Propose an idea or feature enhancement for this project
+title: "[Idea]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve this project! Share your idea or feature request below.
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Feature Proposal
+      description: Explain the problem or feature idea in detail.
+      placeholder: I would like to see...
+    validations:
+      required: true
