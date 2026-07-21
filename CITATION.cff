@@ -5,23 +5,23 @@ type: software
 version: 2.2.0
 date-released: "2026-05-21"
 authors:
-  - family-names: Tout
-    given-names: Chris
-    alias: CTOUT
+    - family-names: Tout
+      given-names: Chris
+      alias: CTOUT
 repository-code: https://github.com/CTOUT/vscode-copilot-sync
 url: https://github.com/CTOUT/vscode-copilot-sync
 abstract: >
-  A PowerShell toolkit to sync, install, and manage GitHub Copilot agents,
-  instructions, hooks, skills, workflows, and plugins from the awesome-copilot
-  community catalogue into VS Code. Full lifecycle management — install, update,
-  and remove — tracked via subscription manifests. Works on Windows, macOS, and
-  Linux via PowerShell 7+.
+    A PowerShell toolkit to sync, install, and manage GitHub Copilot agents,
+    instructions, hooks, skills, workflows, and plugins from the awesome-copilot
+    community catalogue into VS Code. Full lifecycle management — install, update,
+    and remove — tracked via subscription manifests. Works on Windows, macOS, and
+    Linux via PowerShell 7+.
 keywords:
-  - github-copilot
-  - vscode
-  - powershell
-  - developer-tools
-  - automation
-  - awesome-copilot
-  - plugins
+    - github-copilot
+    - vscode
+    - powershell
+    - developer-tools
+    - automation
+    - awesome-copilot
+    - plugins
 license: MIT
