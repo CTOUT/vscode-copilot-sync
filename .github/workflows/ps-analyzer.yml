@@ -3,14 +3,14 @@ name: PSScriptAnalyzer
 on:
   push:
     paths:
-      - '**.ps1'
-      - '**.psm1'
-      - '**.psd1'
+      - "**.ps1"
+      - "**.psm1"
+      - "**.psd1"
   pull_request:
     paths:
-      - '**.ps1'
-      - '**.psm1'
-      - '**.psd1'
+      - "**.ps1"
+      - "**.psm1"
+      - "**.psd1"
   workflow_dispatch:
 
 jobs:
