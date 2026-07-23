@@ -25,7 +25,7 @@ jobs:
           $psFiles = Get-ChildItem -Recurse -Include *.ps1, *.psm1, *.psd1 -Exclude node_modules, bin, obj
           if ($psFiles) {
             Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
-            $results = Invoke-ScriptAnalyzer -Path $psFiles.FullName -Recurse
+            $results = $psFiles | Invoke-ScriptAnalyzer
             $errors = $results | Where-Object { $_.Severity -eq 'Error' }
             if ($errors) {
               $errors | Format-Table
