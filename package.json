@@ -4,7 +4,7 @@
     "format": "prettier --write \"**/*.{md,json,yml,yaml}\""
   },
   "devDependencies": {
-    "cspell": "^10.0.0",
-    "prettier": "^3.8.4"
+    "cspell": "^10.3.3",
+    "prettier": "^3.9.8"
   }
 }
