@@ -23,6 +23,13 @@
 - Currently mitigated with a yellow hint message in the terminal
 - Possible alternative: investigate WinForms-based topmost picker as a drop-in replacement for `Out-GridView`
 
+### Cross-platform: selection without `Out-GridView`
+
+- `Out-GridView` is not available on macOS/Linux, so the install-selection scripts can produce a long, hard-to-manage command-line list
+- `sync-awesome-copilot.ps1` works because it avoids the GridView flow, while the other scripts still rely on it for interactive choices
+- **Proposed fix:** add a CLI-friendly selection mode that supports interactive choices without `Out-GridView`, including a `Recommended` option so users can install the suggested set without specifying explicit IDs or `All`
+- **Proposed validation:** test on macOS/Linux and document the fallback behavior in the README
+
 ### Configuration file support
 
 - Users currently configure everything via command-line parameters; there is no persistent config file
