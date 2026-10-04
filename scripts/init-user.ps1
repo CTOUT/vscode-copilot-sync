@@ -4,9 +4,14 @@ Initialize User-Level Copilot Resources
 Installs agents, instructions, and skills into user-level VS Code and Copilot
 locations, making them available across all repos and VS Code windows — no .github/ needed.
 
-  Agents       --> %APPDATA%\Code\User\prompts\*.agent.md
-  Instructions --> %APPDATA%\Code\User\prompts\*.instructions.md
+  Agents       --> User Prompts dir (*.agent.md)
+  Instructions --> User Prompts dir (*.instructions.md)
   Skills       --> ~/.copilot/skills/<skill-name>/
+
+  Default Prompts Directory:
+    Windows: %APPDATA%\Code\User\prompts
+    macOS:   ~/Library/Application Support/Code/User/prompts
+    Linux:   ~/.config/Code/User/prompts (or $XDG_CONFIG_HOME/Code/User/prompts)
 
 Subscription manifest stored at: ~/.awesome-copilot/user-subscriptions.json
 
@@ -57,12 +62,12 @@ Notes:
     not pre-marked as recommended.
 #>
 [CmdletBinding()] param(
-    [string]$SourceRoot   = "$HOME/.awesome-copilot",
-    [string]$PromptsDir   = "$env:APPDATA\Code\User\prompts",
-    [string]$SkillsDir    = "$HOME/.copilot/skills",
-    [string]$Agents       = '',   # Comma-separated names to pre-select (non-interactive)
+    [string]$SourceRoot = "$HOME/.awesome-copilot",
+    [string]$PromptsDir = '',
+    [string]$SkillsDir  = '',
+    [string]$Agents = '',   # Comma-separated names to pre-select (non-interactive)
     [string]$Instructions = '',
-    [string]$Skills       = '',
+    [string]$Skills = '',
     [switch]$SkipAgents,
     [switch]$SkipInstructions,
     [switch]$SkipSkills,
@@ -75,34 +80,19 @@ Notes:
 #region Initialisation
 $ErrorActionPreference = 'Stop'
 
+$CommonLib = Join-Path $PSScriptRoot 'lib\Common.ps1'
+if (Test-Path $CommonLib) { . $CommonLib }
+
+if (-not $PromptsDir) { $PromptsDir = Resolve-PromptsDirectory }
+if (-not $SkillsDir)  { $SkillsDir  = Resolve-SkillsDirectory }
+
 # -Category: translate to Skip* flags (only the listed categories are processed)
 if ($Category) {
     $wantedCats = @($Category.ToLower() -split '\s*,\s*' | Where-Object { $_ -ne '' })
-    foreach ($cat in @('agents','instructions','skills')) {
+    foreach ($cat in @('agents', 'instructions', 'skills')) {
         if ($cat -notin $wantedCats) {
             Set-Variable -Name "Skip$(([System.Globalization.CultureInfo]::InvariantCulture).TextInfo.ToTitleCase($cat))" -Value $true
         }
-    }
-}
-
-function Log($m, [string]$level = 'INFO') {
-    $ts = (Get-Date).ToString('s')
-    $color = switch ($level) { 'ERROR' { 'Red' } 'WARN' { 'Yellow' } 'SUCCESS' { 'Green' } default { 'Cyan' } }
-    Write-Host "[$ts][$level] $m" -ForegroundColor $color
-}
-
-function Show-OGV {
-    # Wrapper around Out-GridView that flashes the taskbar button and prints
-    # a console hint — the most reliable way to alert the user since Windows
-    # prevents focus-stealing from background processes by design.
-    param([Parameter(ValueFromPipeline)][object[]]$InputObject, [string]$Title, [string]$SearchKey, [switch]$PassThru)
-    begin   { $all = [System.Collections.Generic.List[object]]::new() }
-    process { foreach ($i in $InputObject) { $all.Add($i) } }
-    end {
-        Write-Host "  ► Selection window opening — check your taskbar if it appears behind other apps." -ForegroundColor Yellow
-        if ($PassThru) { $result = $all | Out-GridView -Title $Title -PassThru }
-        else           { $all | Out-GridView -Title $Title }
-        if ($PassThru) { return $result }
     }
 }
 
@@ -121,29 +111,14 @@ Log "Copilot cache        : $SourceRoot"
 
 #region Helpers
 
-function Get-Description([string]$FilePath) {
-    try {
-        $lines = Get-Content $FilePath -TotalCount 20 -ErrorAction SilentlyContinue
-        # YAML frontmatter description field
-        $inFrontmatter = $false
-        foreach ($line in $lines) {
-            if ($line -eq '---') { $inFrontmatter = -not $inFrontmatter; continue }
-            if ($inFrontmatter -and $line -match '^description:\s*(.+)') { return $Matches[1].Trim('"''') }
-        }
-        # First heading line as fallback
-        foreach ($line in $lines) {
-            if ($line -match '^#{1,3}\s+(.+)') { return $Matches[1] }
-        }
-    } catch {}
-    return ''
-}
-
 function Install-File {
     param([string]$Src, [string]$DestDir)
+    Assert-PathWithin -Path $DestDir -ParentDirectory $PromptsDir
     if (-not $DryRun -and -not (Test-Path $DestDir)) {
         New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
     }
-    $dest    = Join-Path $DestDir (Split-Path $Src -Leaf)
+    $dest = Join-Path $DestDir (Split-Path $Src -Leaf)
+    Assert-PathWithin -Path $dest -ParentDirectory $DestDir
     $srcHash = (Get-FileHash $Src -Algorithm SHA256).Hash
     $dstHash = if (Test-Path $dest) { (Get-FileHash $dest -Algorithm SHA256).Hash } else { $null }
     if ($srcHash -eq $dstHash) { return 'unchanged' }
@@ -154,31 +129,28 @@ function Install-File {
 
 function Remove-File {
     param([string]$FilePath)
+    Assert-PathWithin -Path $FilePath -ParentDirectory $PromptsDir
     if ($DryRun) { return 'would-remove' }
     if (Test-Path $FilePath) { Remove-Item $FilePath -Force; return 'removed' }
     return 'not-found'
 }
 
-function Get-DirHash([string]$DirPath) {
-    $hashes   = Get-ChildItem $DirPath -Recurse -File | Sort-Object FullName |
-                ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash }
-    $combined = $hashes -join '|'
-    $bytes    = [System.Text.Encoding]::UTF8.GetBytes($combined)
-    $stream   = [System.IO.MemoryStream]::new($bytes)
-    return (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash
-}
+
 
 function Install-Directory {
     param([string]$SrcDir, [string]$DestParent)
-    $name    = Split-Path $SrcDir -Leaf
+    Assert-PathWithin -Path $DestParent -ParentDirectory $SkillsDir
+    $name = Split-Path $SrcDir -Leaf
     $destDir = Join-Path $DestParent $name
+    Assert-PathWithin -Path $destDir -ParentDirectory $DestParent
     if (-not $DryRun -and -not (Test-Path $destDir)) {
         New-Item -ItemType Directory -Path $destDir -Force | Out-Null
     }
     $added = 0; $updated = 0; $unchanged = 0
     Get-ChildItem $SrcDir -File -Recurse | ForEach-Object {
-        $rel      = $_.FullName.Substring($SrcDir.Length).TrimStart('\','/')
-        $dest     = Join-Path $destDir $rel
+        $rel = $_.FullName.Substring($SrcDir.Length).TrimStart('\', '/')
+        $dest = Join-Path $destDir $rel
+        Assert-PathWithin -Path $dest -ParentDirectory $destDir
         $destDir2 = Split-Path $dest -Parent
         if (-not $DryRun -and -not (Test-Path $destDir2)) {
             New-Item -ItemType Directory -Path $destDir2 -Force | Out-Null
@@ -188,13 +160,15 @@ function Install-Directory {
         if ($srcHash -ne $dstHash) {
             if (-not $DryRun) { Copy-Item $_.FullName $dest -Force }
             if ($dstHash) { $updated++ } else { $added++ }
-        } else { $unchanged++ }
+        }
+        else { $unchanged++ }
     }
     return [pscustomobject]@{ Added = $added; Updated = $updated; Unchanged = $unchanged }
 }
 
 function Remove-Directory {
     param([string]$DirPath)
+    Assert-PathWithin -Path $DirPath -ParentDirectory $SkillsDir
     if ($DryRun) { return 'would-remove' }
     if (Test-Path $DirPath) { Remove-Item $DirPath -Recurse -Force; return 'removed' }
     return 'not-found'
@@ -205,7 +179,8 @@ function Test-RequiresSetup([string]$FilePath) {
     try {
         $text = Get-Content $FilePath -Raw -ErrorAction SilentlyContinue
         return $text -match 'mcp-servers:|_API_KEY\b|COPILOT_MCP_'
-    } catch { return $false }
+    }
+    catch { return $false }
 }
 
 function Update-UserSubscriptions {
@@ -241,7 +216,8 @@ function Update-UserSubscriptions {
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
         $subs | ConvertTo-Json -Depth 5 | Set-Content $ManifestPath -Encoding UTF8
         Log "Updated user subscriptions: $ManifestPath"
-    } else {
+    }
+    else {
         Log "[DryRun] Would update user subscriptions: $ManifestPath ($($NewEntries.Count) new/updated entries)"
     }
 }
@@ -257,7 +233,8 @@ function Remove-UserSubscriptionEntries {
         $subs | Add-Member -NotePropertyName 'subscriptions' -NotePropertyValue $kept            -Force
         $subs | Add-Member -NotePropertyName 'updatedAt'     -NotePropertyValue (Get-Date).ToString('o') -Force
         $subs | ConvertTo-Json -Depth 5 | Set-Content $ManifestPath -Encoding UTF8
-    } catch { Log "Could not update user subscriptions manifest: $_" 'WARN' }
+    }
+    catch { Log "Could not update user subscriptions manifest: $_" 'WARN' }
 }
 
 #endregion # Helpers
@@ -268,57 +245,57 @@ function Remove-UserSubscriptionEntries {
 # An agent is NOT a general recommendation if any of these appear in its name.
 $script:TechSpecificSegments = @(
     # Languages
-    'csharp','dotnet','python','java','kotlin','go','rust','ruby','php','swift',
-    'typescript','javascript','clojure',
+    'csharp', 'dotnet', 'python', 'java', 'kotlin', 'go', 'rust', 'ruby', 'php', 'swift',
+    'typescript', 'javascript', 'clojure',
     # Frontend / mobile / platform frameworks
-    'react','angular','vue','nextjs','nuxt','svelte','ember','laravel','django',
-    'android','ios','maui','winforms','winui','electron',
+    'react', 'angular', 'vue', 'nextjs', 'nuxt', 'svelte', 'ember', 'laravel', 'django',
+    'android', 'ios', 'maui', 'winforms', 'winui', 'electron',
     'mobile',       # mobile development platform (iOS/Android/cross-platform)
     # Cloud & infrastructure
-    'azure','aws','gcp','terraform','bicep','kubernetes','docker',
+    'azure', 'aws', 'gcp', 'terraform', 'bicep', 'kubernetes', 'docker',
     'terratest',    # TerraTest — Terraform testing framework
     'kubestellar',  # KubeStellar — Kubernetes multi-cluster federation
     # Vendors & SaaS platforms
-    'salesforce','shopify','atlassian','drupal','wordpress','pimcore',
-    'amplitude','launchdarkly','comet','apify',
-    'pagerduty','datadog','dynatrace','octopus','jfrog',
-    'neon','diffblue','stackhawk','taxcore','cast',
+    'salesforce', 'shopify', 'atlassian', 'drupal', 'wordpress', 'pimcore',
+    'amplitude', 'launchdarkly', 'comet', 'apify',
+    'pagerduty', 'datadog', 'dynatrace', 'octopus', 'jfrog',
+    'neon', 'diffblue', 'stackhawk', 'taxcore', 'cast',
     'monday',       # monday.com project management
     'aem',          # Adobe Experience Manager
     'lingodotdev',  # Lingo.dev i18n translation platform
     # Microsoft product & tooling suite
-    'power','flowstudio',
+    'power', 'flowstudio',
     'defender',     # Microsoft Defender security platform
     'foundry',      # Azure AI Foundry
     'context7',     # Context7 MCP documentation server
     # Databases & query engines
-    'neo4j','elasticsearch','mongodb','postgres','postgresql','mysql','oracle','redis',
-    'kusto','spark',
+    'neo4j', 'elasticsearch', 'mongodb', 'postgres', 'postgresql', 'mysql', 'oracle', 'redis',
+    'kusto', 'spark',
     'kql',          # Kusto Query Language
     # Specific tooling
-    'playwright','linux','github','powerbi','powershell','mcp',
+    'playwright', 'linux', 'github', 'powerbi', 'powershell', 'mcp',
     # Versioned / compound tech names (react18, react19, vuejs, winui3, cpp...)
-    'cpp','vuejs','winui3','react18','react19'
+    'cpp', 'vuejs', 'winui3', 'react18', 'react19'
 )
 
 # Name segments that positively identify a general-purpose, tech-agnostic agent.
 # Used to award the ★ recommendation in the user-level picker.
 $script:GeneralPositiveSegments = @(
     # Thinking modes & challenge
-    'beast','mode','thinking','critical','advocate','devils',
+    'beast', 'mode', 'thinking', 'critical', 'advocate', 'devils',
     # Debug / review / quality (base forms + common -er/-ing/-ed derived forms)
-    'debug','debugger','review','reviewer','doublecheck','check','critic','sentinel','alchemist',
+    'debug', 'debugger', 'review', 'reviewer', 'doublecheck', 'check', 'critic', 'sentinel', 'alchemist',
     # Mentoring / coaching
-    'mentor','mentoring','coach',
+    'mentor', 'mentoring', 'coach',
     # Planning / architecture
-    'plan','planner','blueprint','adr','specification','architect','architecture',
-    'implementation','task','research','researcher','spike','feature',
+    'plan', 'planner', 'blueprint', 'adr', 'specification', 'architect', 'architecture',
+    'implementation', 'task', 'research', 'researcher', 'spike', 'feature',
     # Language-agnostic engineering practices
-    'tdd','devops','swe','qa','security','responsible','governance','owasp',
+    'tdd', 'devops', 'swe', 'qa', 'security', 'responsible', 'governance', 'owasp',
     'safety',       # agent-safety, AI/system safety practices
     'gitops',       # se-gitops-ci-specialist: GitOps workflows
     # Code quality & process
-    'janitor','refine','refactor','debt','remediation','tour','simplifier',
+    'janitor', 'refine', 'refactor', 'debt', 'remediation', 'tour', 'simplifier',
     'modernization',# modernization: language-agnostic code modernisation
     # Engineering roles (new agent families: gem-*, se-*, software-engineer-*)
     'implementer',  # gem-implementer: implements features cross-stack
@@ -329,47 +306,67 @@ $script:GeneralPositiveSegments = @(
     'investigator', # devtools-regression-investigator: root-cause analysis
     'documenter',   # project-documenter: documentation generation
     # Writing & docs
-    'writer','documentation',
+    'writer', 'documentation',
     'localization', # localization: i18n and l10n practices (any stack)
     # Accessibility & quality standards
-    'accessibility','a11y','performance',
+    'accessibility', 'a11y', 'performance',
     # Memory / cross-session
     'remember',
     'memory',       # memory-bank: AI memory management patterns
     # Understanding / learning
-    'understand','understanding',
+    'understand', 'understanding',
     # Polyglot / language-agnostic testing
     'polyglot',
     # Roles / orchestration
-    'principal','droid','gilfoyle','orchestrator','conductor','advisor',
+    'principal', 'droid', 'gilfoyle', 'orchestrator', 'conductor', 'advisor',
     # Prompt / addressing work
-    'address','prompt','prd'
+    'address', 'prompt', 'prd'
 )
 
-function Measure-GeneralRelevance([string]$ItemName) {
+function Measure-GeneralRelevance {
     <#
     .SYNOPSIS
     Returns a relevance score for user-level (repo-agnostic) display.
       0  = tech-specific or unknown — no star
       2+ = clearly general-purpose — show ★
-    Handles both hyphenated names (e.g. 'critical-thinking') and CamelCase
-    (e.g. 'CSharpExpert') by checking both split segments and, for CamelCase-
-    only names, the lowercased-no-separator form.  The Contains() check is
-    intentionally restricted to CamelCase names to avoid false positives on
-    words like 'modernization' containing 'mode'.
+    Uses ItemName, Title, and Description to identify tech-agnostic developer tools,
+    architecture guides, review assistants, and engineering methodology items.
     #>
-    $segments   = $ItemName.ToLower() -split '-'
-    $fullLow    = ($ItemName.ToLower() -replace '[^a-z0-9]', '')
+    param(
+        [string]$ItemName,
+        [string]$Title = '',
+        [string]$Description = ''
+    )
+    $segments = $ItemName.ToLower() -split '-'
+    $fullLow = ($ItemName.ToLower() -replace '[^a-z0-9]', '')
     $isCamelCase = $ItemName -cmatch '[a-z][A-Z]|[A-Z]{2}[a-z]'  # e.g. CSharpExpert, WinFormsExpert
+    $titleLow = $Title.ToLower()
+    $descLow = $Description.ToLower()
 
+    # 1. Tech-specific negative filter (name, camelCase, or title word match)
     foreach ($t in $script:TechSpecificSegments) {
         if ($segments -contains $t) { return 0 }
         if ($isCamelCase -and $fullLow.Contains($t)) { return 0 }
+        if ($Title -and ($titleLow -match "\b$([regex]::Escape($t))\b")) { return 0 }
     }
 
+    # 2. General-purpose positive filter (name or title word match)
     foreach ($g in $script:GeneralPositiveSegments) {
         if ($segments -contains $g) { return 2 }
         if ($isCamelCase -and $fullLow.Contains($g)) { return 2 }
+        if ($Title -and ($titleLow -match "\b$([regex]::Escape($g))\b")) { return 2 }
+    }
+
+    # 3. Curated description positive signals (cross-cutting engineering practices)
+    if ($Description) {
+        $descPatterns = @(
+            '\bcode review\b', '\bclean code\b', '\brefactor\b', '\bdebugging\b',
+            '\bunit test', '\bsoftware architect', '\bdesign pattern', '\bsecurity audit\b',
+            '\baccessibility\b', '\ba11y\b', '\bdocumentation\b', '\bmethodology\b'
+        )
+        foreach ($pat in $descPatterns) {
+            if ($descLow -match $pat) { return 2 }
+        }
     }
 
     return 0  # neutral — available but not starred
@@ -378,7 +375,7 @@ function Measure-GeneralRelevance([string]$ItemName) {
 #endregion # General-agent detection
 
 #region Subscription manifest
-$UserManifestPath   = Join-Path $SourceRoot 'user-subscriptions.json'
+$UserManifestPath = Join-Path $SourceRoot 'user-subscriptions.json'
 $script:UserSubIndex = @{}
 
 if (Test-Path $UserManifestPath) {
@@ -389,39 +386,61 @@ if (Test-Path $UserManifestPath) {
                 $script:UserSubIndex["$($s.category)|$($s.name)"] = $s
             }
         }
-    } catch { Log "Could not parse user subscriptions manifest: $_" 'WARN' }
+    }
+    catch { Log "Could not parse user subscriptions manifest: $_" 'WARN' }
 }
 
 #endregion # Subscription manifest
 
 #region Catalogue builder
 
+# Load curated catalogue metadata from ~/.awesome-copilot/catalogue.json (produced from llms.txt)
+$script:CatalogueMeta = @{}
+$CataloguePath = Join-Path $SourceRoot 'catalogue.json'
+if (Test-Path $CataloguePath) {
+    try {
+        $catJson = Get-Content $CataloguePath -Raw | ConvertFrom-Json
+        if ($catJson.items) {
+            foreach ($it in $catJson.items) {
+                $script:CatalogueMeta["$($it.category)|$($it.name)"] = $it
+            }
+        }
+    }
+    catch { Log "Could not parse catalogue metadata: $_" 'WARN' }
+}
+
 function Build-UserCatalogue([string]$CatDir, [string]$Pattern, [string]$Category) {
     if (-not (Test-Path $CatDir)) { return @() }
     Get-ChildItem $CatDir -File | Where-Object { $_.Name -match $Pattern } | ForEach-Object {
-        $destFile        = Join-Path $PromptsDir $_.Name
-        $itemName        = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.(instructions|agent|prompt|chatmode)$', ''
-        $subKey          = "$Category|$itemName"
-        $subEntry        = $script:UserSubIndex[$subKey]
-        $installed       = Test-Path $destFile
+        $destFile = Join-Path $PromptsDir $_.Name
+        $itemName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.(instructions|agent|prompt|chatmode)$', ''
+        $subKey = "$Category|$itemName"
+        $subEntry = $script:UserSubIndex[$subKey]
+        $installed = Test-Path $destFile
         $updateAvailable = $false
         $locallyModified = $false
         $managedByScript = $null -ne $subEntry
 
         if ($installed -and $subEntry) {
-            $srcHash         = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-            $currentHash     = (Get-FileHash $destFile   -Algorithm SHA256).Hash
+            $srcHash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+            $currentHash = (Get-FileHash $destFile   -Algorithm SHA256).Hash
             $locallyModified = $currentHash -ne $subEntry.hashAtInstall
             $updateAvailable = $srcHash -ne $currentHash
         }
 
-        $isRec = (-not (Test-RequiresSetup $_.FullName)) -and ((Measure-GeneralRelevance $itemName) -ge 2)
+        $meta = $script:CatalogueMeta[$subKey]
+        $title = if ($meta -and $meta.title) { $meta.title } else { $itemName }
+        $desc = if ($meta -and $meta.description) { $meta.description } else { Get-Description $_.FullName }
+        $requiresSetup = if ($meta -and $null -ne $meta.requiresSetup) { [bool]$meta.requiresSetup } else { Test-RequiresSetup $_.FullName }
+
+        $isRec = (-not $requiresSetup) -and ((Measure-GeneralRelevance -ItemName $itemName -Title $title -Description $desc) -ge 2)
         [pscustomobject]@{
             Name             = $itemName
+            Title            = $title
             FileName         = $_.Name
             FullPath         = $_.FullName
-            Description      = Get-Description $_.FullName
-            RequiresSetup    = Test-RequiresSetup $_.FullName
+            Description      = $desc
+            RequiresSetup    = $requiresSetup
             IsRecommended    = $isRec
             AlreadyInstalled = $installed
             ManagedByScript  = $managedByScript
@@ -435,29 +454,37 @@ function Build-UserSkillsCatalogue {
     $catDir = Join-Path $SourceRoot 'skills'
     if (-not (Test-Path $catDir)) { return @() }
     Get-ChildItem $catDir -Directory | ForEach-Object {
-        $destSubdir      = Join-Path $SkillsDir $_.Name
-        $readmePath      = Join-Path $_.FullName 'README.md'
+        $destSubdir = Join-Path $SkillsDir $_.Name
+        $readmePath = Join-Path $_.FullName 'README.md'
         if (-not (Test-Path $readmePath)) { $readmePath = Join-Path $_.FullName 'SKILL.md' }
-        $subKey          = "skills|$($_.Name)"
-        $subEntry        = $script:UserSubIndex[$subKey]
-        $installed       = Test-Path $destSubdir
+        $subKey = "skills|$($_.Name)"
+        $subEntry = $script:UserSubIndex[$subKey]
+        $installed = Test-Path $destSubdir
         $updateAvailable = $false
         $locallyModified = $false
         $managedByScript = $null -ne $subEntry
 
         if ($installed -and $subEntry) {
-            $srcHash         = Get-DirHash $_.FullName
-            $currentHash     = Get-DirHash $destSubdir
+            $srcHash = Get-DirHash $_.FullName
+            $currentHash = Get-DirHash $destSubdir
             $locallyModified = $currentHash -ne $subEntry.hashAtInstall
             $updateAvailable = $srcHash -ne $currentHash
         }
 
-        $isRec = (-not (Test-RequiresSetup $_.FullName)) -and ((Measure-GeneralRelevance $_.Name) -ge 2)
+        $meta = $script:CatalogueMeta[$subKey]
+        $title = if ($meta -and $meta.title) { $meta.title } else { $_.Name }
+        $desc = if ($meta -and $meta.description) { $meta.description } else {
+            if (Test-Path $readmePath) { Get-Description $readmePath } else { '' }
+        }
+        $requiresSetup = if ($meta -and $null -ne $meta.requiresSetup) { [bool]$meta.requiresSetup } else { Test-RequiresSetup $_.FullName }
+
+        $isRec = (-not $requiresSetup) -and ((Measure-GeneralRelevance -ItemName $_.Name -Title $title -Description $desc) -ge 2)
         [pscustomobject]@{
             Name             = $_.Name
+            Title            = $title
             FullPath         = $_.FullName
-            Description      = if (Test-Path $readmePath) { Get-Description $readmePath } else { '' }
-            RequiresSetup    = Test-RequiresSetup $_.FullName
+            Description      = $desc
+            RequiresSetup    = $requiresSetup
             IsRecommended    = $isRec
             AlreadyInstalled = $installed
             ManagedByScript  = $managedByScript
@@ -485,7 +512,7 @@ function Select-UserItems {
 
     # Non-interactive mode: pre-selection provided
     if ($PreSelected) {
-        $names    = $PreSelected.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        $names = $PreSelected.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
         $selected = $Items | Where-Object { $names -contains $_.Name }
         if (-not $selected) { Log "No matching $Category items for: $PreSelected" 'WARN' }
         return @($selected)
@@ -493,31 +520,33 @@ function Select-UserItems {
 
     # Sort: recommended first, then already-installed, then alphabetical
     $Items = $Items | Sort-Object `
-        @{ E={ if ($_.IsRecommended)     { 0 } else { 1 } } },
-        @{ E={ if ($_.AlreadyInstalled)  { 0 } else { 1 } } },
-        Name
+    @{ E = { if ($_.IsRecommended) { 0 } else { 1 } } },
+    @{ E = { if ($_.AlreadyInstalled) { 0 } else { 1 } } },
+    Name
 
     Write-Host ""
     Write-Host "  === User-level $Category (available in all repos) ===" -ForegroundColor Yellow
-    Write-Host "  ★=Recommended (general-purpose)  [*]=Installed  [↑]=Update available  [~]=Locally modified  [!]=Setup required" -ForegroundColor DarkGray
+    Write-Host "  ★=Recommended (general-purpose)  [*]=Installed  [↑]=Update available  [~]=Locally modified  [!]=Setup required" -ForegroundColor Gray
 
     $ogvAvailable = $false
     try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
 
     if ($ogvAvailable) {
-        $none    = [pscustomobject]@{ Rec=''; Status=''; Name='-- none / skip --'; Description='Select this (or nothing) to install nothing' }
+        $none = [pscustomobject]@{ Rec = ''; Status = ''; Title = '-- none / skip --'; Name = '-- none / skip --'; Description = 'Select this (or nothing) to install nothing' }
         $display = @($none) + @($Items | Select-Object `
-            @{ N='Rec'; E={ if ($_.IsRecommended) { '★' } else { '' } } },
-            @{ N='Status'; E={
-                $s = ''
-                if ($_.AlreadyInstalled) { $s += '[*]' }
-                if ($_.UpdateAvailable)  { $s += '[↑]' }
-                if ($_.LocallyModified)  { $s += '[~]' }
-                if ($_.RequiresSetup)    { $s += '[!]' }
-                $s
-            }},
-            @{ N='Name';        E={ $_.Name } },
-            @{ N='Description'; E={ $_.Description } })
+            @{ N = 'Rec'; E = { if ($_.IsRecommended) { '★' } else { '' } } },
+            @{ N = 'Status'; E = {
+                    $s = ''
+                    if ($_.AlreadyInstalled) { $s += '[*]' }
+                    if ($_.UpdateAvailable) { $s += '[↑]' }
+                    if ($_.LocallyModified) { $s += '[~]' }
+                    if ($_.RequiresSetup) { $s += '[!]' }
+                    $s
+                }
+            },
+            @{ N = 'Title'; E = { if ($_.Title) { $_.Title } else { $_.Name } } },
+            @{ N = 'Name'; E = { $_.Name } },
+            @{ N = 'Description'; E = { $_.Description } })
 
         $picked = $display | Show-OGV -Title "User-level $Category — available in ALL repos  ★=General-purpose  [*]=Installed  [↑]=Update  [~]=Modified  [!]=Setup required" -SearchKey "Select user $Category" -PassThru
         if (-not $picked) { return @() }
@@ -525,34 +554,48 @@ function Select-UserItems {
         return @($Items | Where-Object { $pickedNames -contains $_.Name })
     }
 
+    # Try fzf terminal fuzzy multi-select if available
+    $fzfPicked = Show-FzfPicker -Title "Select user-level $Category" -Items $Items
+    if ($null -ne $fzfPicked) { return $fzfPicked }
+
     # Fallback: numbered console menu
     Write-Host ""
     for ($i = 0; $i -lt $Items.Count; $i++) {
-        $item   = $Items[$i]
+        $item = $Items[$i]
         $status = ''
         if ($item.AlreadyInstalled) { $status += '[*]' }
-        if ($item.UpdateAvailable)  { $status += '[↑]' }
-        if ($item.LocallyModified)  { $status += '[~]' }
-        $rec   = if ($item.IsRecommended) { '[★]' } elseif ($item.RequiresSetup) { '[!]' } else { '   ' }
-        $color = if ($item.UpdateAvailable) { 'Cyan' } elseif ($item.AlreadyInstalled) { 'DarkCyan' } elseif ($item.IsRecommended) { 'Yellow' } elseif ($item.RequiresSetup) { 'DarkYellow' } else { 'White' }
-        Write-Host ("  {0,3}. {1} {2,-6} {3}" -f ($i+1), $rec, $status, $item.Name) -ForegroundColor $color
+        if ($item.UpdateAvailable) { $status += '[↑]' }
+        if ($item.LocallyModified) { $status += '[~]' }
+        $rec = if ($item.IsRecommended) { '[★]' } elseif ($item.RequiresSetup) { '[!]' } else { '   ' }
+        $color = if ($item.UpdateAvailable) { 'Cyan' } elseif ($item.AlreadyInstalled) { 'Gray' } elseif ($item.IsRecommended) { 'Yellow' } elseif ($item.RequiresSetup) { 'Yellow' } else { 'White' }
+        $titleStr = if ($item.Title -and $item.Title -ne $item.Name) { "$($item.Title) ($($item.Name))" } else { $item.Name }
+        Write-Host ("  {0,3}. {1} {2,-6} {3}" -f ($i + 1), $rec, $status, $titleStr) -ForegroundColor $color
         if ($item.Description) {
-            Write-Host ("             {0}" -f $item.Description) -ForegroundColor DarkGray
+            Write-Host ("             {0}" -f $item.Description) -ForegroundColor Gray
         }
     }
     Write-Host ""
-    Write-Host "  Enter numbers to install (e.g. 1,3,5 or 1-3 or 'all' or blank to skip): " -NoNewline -ForegroundColor Yellow
+    Write-Host "  Enter numbers to install (e.g. 1,3,5 or 1-3, 'rec' for recommended, 'all', or blank to skip): " -NoNewline -ForegroundColor Yellow
     $rawInput = Read-Host
 
     if (-not $rawInput -or $rawInput.Trim() -eq '') { return @() }
     if ($rawInput.Trim() -eq 'all') { return $Items }
+    if ($rawInput.Trim() -in 'rec', 'recommended', 'r') {
+        $recItems = @($Items | Where-Object { $_.IsRecommended })
+        if ($recItems.Count -eq 0) {
+            Write-Host "  No items marked as recommended (★)." -ForegroundColor Yellow
+            return @()
+        }
+        return $recItems
+    }
 
     $indices = @()
     foreach ($part in $rawInput.Split(',')) {
         $part = $part.Trim()
         if ($part -match '^(\d+)-(\d+)$') {
             $indices += ([int]$Matches[1])..[int]$Matches[2]
-        } elseif ($part -match '^\d+$') {
+        }
+        elseif ($part -match '^\d+$') {
             $indices += [int]$part
         }
     }
@@ -573,40 +616,46 @@ function Select-UserToRemove {
     try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
 
     if ($ogvAvailable) {
-        $none    = [pscustomobject]@{ Modified=''; Name='-- none / skip --'; Description='Select this (or nothing) to remove nothing' }
+        $none = [pscustomobject]@{ Modified = ''; Title = '-- none / skip --'; Name = '-- none / skip --'; Description = 'Select this (or nothing) to remove nothing' }
         $display = @($none) + @($removable | Select-Object `
-            @{ N='Modified';    E={ if ($_.LocallyModified) { '[~] MODIFIED' } else { '' } } },
-            @{ N='Name';        E={ $_.Name } },
-            @{ N='Description'; E={ $_.Description } })
+            @{ N = 'Modified'; E = { if ($_.LocallyModified) { '[~] MODIFIED' } else { '' } } },
+            @{ N = 'Title'; E = { if ($_.Title) { $_.Title } else { $_.Name } } },
+            @{ N = 'Name'; E = { $_.Name } },
+            @{ N = 'Description'; E = { $_.Description } })
         $picked = $display | Show-OGV -Title "Remove user-level $Category   [~]=Locally modified (removal is permanent)" -SearchKey "Remove user $Category" -PassThru
         if (-not $picked) { return @() }
         $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
         return @($removable | Where-Object { $pickedNames -contains $_.Name })
     }
 
-    # Fallback: numbered console menu
+    # Try fzf terminal fuzzy multi-select if available
+    $fzfPicked = Show-FzfPicker -Title "Select user-level $Category to REMOVE" -Items $removable
+    if ($null -ne $fzfPicked) { return $fzfPicked }
+
     Write-Host ""
     Write-Host "  === Remove user-level $Category ===" -ForegroundColor Red
-    Write-Host "  [~] = locally modified — removal is permanent" -ForegroundColor DarkGray
+    Write-Host "  [~] = locally modified — removal is permanent" -ForegroundColor Gray
     for ($i = 0; $i -lt $removable.Count; $i++) {
-        $mod   = if ($removable[$i].LocallyModified) { '[~]' } else { '   ' }
-        $color = if ($removable[$i].LocallyModified) { 'Yellow' } else { 'DarkCyan' }
-        Write-Host ("  {0,3}. {1} {2}" -f ($i+1), $mod, $removable[$i].Name) -ForegroundColor $color
+        $mod = if ($removable[$i].LocallyModified) { '[~]' } else { '   ' }
+        $color = if ($removable[$i].LocallyModified) { 'Yellow' } else { 'White' }
+        Write-Host ("  {0,3}. {1} {2}" -f ($i + 1), $mod, $removable[$i].Name) -ForegroundColor $color
         if ($removable[$i].Description) {
-            Write-Host ("           {0}" -f $removable[$i].Description) -ForegroundColor DarkGray
+            Write-Host ("           {0}" -f $removable[$i].Description) -ForegroundColor Gray
         }
     }
     Write-Host ""
-    Write-Host "  Enter numbers to REMOVE (e.g. 1,3 or blank to skip): " -NoNewline -ForegroundColor Red
+    Write-Host "  Enter numbers to REMOVE (e.g. 1,3, 'all', or blank to skip): " -NoNewline -ForegroundColor Red
     $rawInput = Read-Host
     if (-not $rawInput -or $rawInput.Trim() -eq '') { return @() }
+    if ($rawInput.Trim() -eq 'all') { return $removable }
 
     $indices = @()
     foreach ($part in $rawInput.Split(',')) {
         $part = $part.Trim()
         if ($part -match '^(\d+)-(\d+)$') {
             $indices += ([int]$Matches[1])..[int]$Matches[2]
-        } elseif ($part -match '^\d+$') {
+        }
+        elseif ($part -match '^\d+$') {
             $indices += [int]$part
         }
     }
@@ -624,20 +673,20 @@ if ($Bootstrap) {
     $agentCacheDir = Join-Path $SourceRoot 'agents'
     if (Test-Path $agentCacheDir) {
         Get-ChildItem $agentCacheDir -File | Where-Object { $_.Name -match '\.agent\.md$' } | ForEach-Object {
-            $itemName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.agent$',''
+            $itemName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.agent$', ''
             $destFile = Join-Path $PromptsDir $_.Name
             if ((Test-Path $destFile) -and -not $script:UserSubIndex.ContainsKey("agents|$itemName")) {
                 Log "  Register agent: $itemName"
                 if (-not $DryRun) {
                     $bootstrapEntries.Add([pscustomobject]@{
-                        name          = $itemName
-                        category      = 'agents'
-                        type          = 'file'
-                        fileName      = $_.Name
-                        sourceRelPath = "agents/$($_.Name)"
-                        hashAtInstall = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-                        installedAt   = (Get-Date).ToString('o')
-                    })
+                            name          = $itemName
+                            category      = 'agents'
+                            type          = 'file'
+                            fileName      = $_.Name
+                            sourceRelPath = "agents/$($_.Name)"
+                            hashAtInstall = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+                            installedAt   = (Get-Date).ToString('o')
+                        })
                 }
             }
         }
@@ -647,20 +696,20 @@ if ($Bootstrap) {
     $instrCacheDir = Join-Path $SourceRoot 'instructions'
     if (Test-Path $instrCacheDir) {
         Get-ChildItem $instrCacheDir -File | Where-Object { $_.Name -match '\.instructions\.md$' } | ForEach-Object {
-            $itemName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.instructions$',''
+            $itemName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.instructions$', ''
             $destFile = Join-Path $PromptsDir $_.Name
             if ((Test-Path $destFile) -and -not $script:UserSubIndex.ContainsKey("instructions|$itemName")) {
                 Log "  Register instruction: $itemName"
                 if (-not $DryRun) {
                     $bootstrapEntries.Add([pscustomobject]@{
-                        name          = $itemName
-                        category      = 'instructions'
-                        type          = 'file'
-                        fileName      = $_.Name
-                        sourceRelPath = "instructions/$($_.Name)"
-                        hashAtInstall = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-                        installedAt   = (Get-Date).ToString('o')
-                    })
+                            name          = $itemName
+                            category      = 'instructions'
+                            type          = 'file'
+                            fileName      = $_.Name
+                            sourceRelPath = "instructions/$($_.Name)"
+                            hashAtInstall = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+                            installedAt   = (Get-Date).ToString('o')
+                        })
                 }
             }
         }
@@ -675,14 +724,14 @@ if ($Bootstrap) {
                 Log "  Register skill: $($_.Name)"
                 if (-not $DryRun) {
                     $bootstrapEntries.Add([pscustomobject]@{
-                        name          = $_.Name
-                        category      = 'skills'
-                        type          = 'directory'
-                        dirName       = $_.Name
-                        sourceRelPath = "skills/$($_.Name)"
-                        hashAtInstall = Get-DirHash $_.FullName
-                        installedAt   = (Get-Date).ToString('o')
-                    })
+                            name          = $_.Name
+                            category      = 'skills'
+                            type          = 'directory'
+                            dirName       = $_.Name
+                            sourceRelPath = "skills/$($_.Name)"
+                            hashAtInstall = Get-DirHash $_.FullName
+                            installedAt   = (Get-Date).ToString('o')
+                        })
                 }
             }
         }
@@ -691,24 +740,26 @@ if ($Bootstrap) {
     if ($DryRun) {
         # Count what would be registered by re-running without DryRun
         $wouldCount = 0
-        foreach ($cat in @('agents','instructions','skills')) {
+        foreach ($cat in @('agents', 'instructions', 'skills')) {
             $cDir = Join-Path $SourceRoot $cat
             if (-not (Test-Path $cDir)) { continue }
             $isDir = $cat -eq 'skills'
             $items = if ($isDir) { Get-ChildItem $cDir -Directory } else { Get-ChildItem $cDir -File }
             foreach ($item in $items) {
                 $n = if ($isDir) { $item.Name } else {
-                    [System.IO.Path]::GetFileNameWithoutExtension($item.Name) -replace '\.(agent|instructions)$',''
+                    [System.IO.Path]::GetFileNameWithoutExtension($item.Name) -replace '\.(agent|instructions)$', ''
                 }
                 $destPath = if ($isDir) { Join-Path $SkillsDir $n } else { Join-Path $PromptsDir $item.Name }
                 if ((Test-Path $destPath) -and -not $script:UserSubIndex.ContainsKey("$cat|$n")) { $wouldCount++ }
             }
         }
         Log "[DryRun] Would register $wouldCount untracked installation(s) into user-subscriptions.json" 'WARN'
-    } elseif ($bootstrapEntries.Count -gt 0) {
+    }
+    elseif ($bootstrapEntries.Count -gt 0) {
         Update-UserSubscriptions -ManifestPath $UserManifestPath -NewEntries $bootstrapEntries.ToArray()
         Log "Bootstrap complete: registered $($bootstrapEntries.Count) installation(s). Run update-user.ps1 to check for upstream changes." 'SUCCESS'
-    } else {
+    }
+    else {
         Log "Bootstrap: nothing to register — all installed resources are already tracked." 'SUCCESS'
     }
     exit 0
@@ -723,7 +774,7 @@ if (-not $Uninstall) {
     Write-Host ""
     Write-Host "  ⚠  Resources installed to user-level locations are loaded by Copilot in ALL VS Code" -ForegroundColor Yellow
     Write-Host "     sessions on this machine, regardless of which repo is open." -ForegroundColor Yellow
-    Write-Host "     Only install resources from sources you trust." -ForegroundColor DarkGray
+    Write-Host "     Only install resources from sources you trust." -ForegroundColor Gray
     Write-Host ""
 }
 
@@ -735,30 +786,31 @@ if (-not $SkipAgents) {
         $toRemove = Select-UserToRemove -Category 'Agents' -Items $catAgents
         foreach ($item in $toRemove) {
             $result = Remove-File -FilePath (Join-Path $PromptsDir $item.FileName)
-            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+            $verb = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
             Log "$verb  user agent: $($item.FileName)"
         }
         if ($toRemove.Count -gt 0) {
             Remove-UserSubscriptionEntries -ManifestPath $UserManifestPath -Keys @($toRemove | ForEach-Object { "agents|$($_.Name)" })
         }
-    } else {
+    }
+    else {
         $selected = Select-UserItems -Category 'Agents' -Items $catAgents -PreSelected $Agents
 
         foreach ($item in $selected) {
             $result = Install-File -Src $item.FullPath -DestDir $PromptsDir
-            $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
+            $verb = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
             Log "$verb  user agent: $($item.FileName)"
-            if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
+            if ($result -in 'added', 'updated', 'would-copy') { $totalInstalled++ }
 
             $script:UserSubscriptionEntries.Add([pscustomobject]@{
-                name          = $item.Name
-                category      = 'agents'
-                type          = 'file'
-                fileName      = $item.FileName
-                sourceRelPath = "agents/$($item.FileName)"
-                hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
-                installedAt   = (Get-Date).ToString('o')
-            })
+                    name          = $item.Name
+                    category      = 'agents'
+                    type          = 'file'
+                    fileName      = $item.FileName
+                    sourceRelPath = "agents/$($item.FileName)"
+                    hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
+                    installedAt   = (Get-Date).ToString('o')
+                })
         }
     }
 }
@@ -774,30 +826,31 @@ if (-not $SkipInstructions) {
         $toRemove = Select-UserToRemove -Category 'Instructions' -Items $catInstructions
         foreach ($item in $toRemove) {
             $result = Remove-File -FilePath (Join-Path $PromptsDir $item.FileName)
-            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+            $verb = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
             Log "$verb  user instruction: $($item.FileName)"
         }
         if ($toRemove.Count -gt 0) {
             Remove-UserSubscriptionEntries -ManifestPath $UserManifestPath -Keys @($toRemove | ForEach-Object { "instructions|$($_.Name)" })
         }
-    } else {
+    }
+    else {
         $selected = Select-UserItems -Category 'Instructions' -Items $catInstructions -PreSelected $Instructions
 
         foreach ($item in $selected) {
             $result = Install-File -Src $item.FullPath -DestDir $PromptsDir
-            $verb   = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
+            $verb = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
             Log "$verb  user instruction: $($item.FileName)"
-            if ($result -in 'added','updated','would-copy') { $totalInstalled++ }
+            if ($result -in 'added', 'updated', 'would-copy') { $totalInstalled++ }
 
             $script:UserSubscriptionEntries.Add([pscustomobject]@{
-                name          = $item.Name
-                category      = 'instructions'
-                type          = 'file'
-                fileName      = $item.FileName
-                sourceRelPath = "instructions/$($item.FileName)"
-                hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
-                installedAt   = (Get-Date).ToString('o')
-            })
+                    name          = $item.Name
+                    category      = 'instructions'
+                    type          = 'file'
+                    fileName      = $item.FileName
+                    sourceRelPath = "instructions/$($item.FileName)"
+                    hashAtInstall = (Get-FileHash $item.FullPath -Algorithm SHA256).Hash
+                    installedAt   = (Get-Date).ToString('o')
+                })
         }
     }
 }
@@ -813,30 +866,31 @@ if (-not $SkipSkills) {
         $toRemove = Select-UserToRemove -Category 'Skills' -Items $catSkills
         foreach ($item in $toRemove) {
             $result = Remove-Directory -DirPath (Join-Path $SkillsDir $item.Name)
-            $verb   = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
+            $verb = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
             Log "$verb  user skill: $($item.Name)"
         }
         if ($toRemove.Count -gt 0) {
             Remove-UserSubscriptionEntries -ManifestPath $UserManifestPath -Keys @($toRemove | ForEach-Object { "skills|$($_.Name)" })
         }
-    } else {
+    }
+    else {
         $selected = Select-UserItems -Category 'Skills' -Items $catSkills -PreSelected $Skills
 
         foreach ($item in $selected) {
-            $r    = Install-Directory -SrcDir $item.FullPath -DestParent $SkillsDir
+            $r = Install-Directory -SrcDir $item.FullPath -DestParent $SkillsDir
             $verb = if ($DryRun) { '~ DryRun' } else { '✓ Installed' }
             Log "$verb  user skill: $($item.Name) (added=$($r.Added) updated=$($r.Updated) unchanged=$($r.Unchanged))"
             if (-not $DryRun) { $totalInstalled++ }
 
             $script:UserSubscriptionEntries.Add([pscustomobject]@{
-                name          = $item.Name
-                category      = 'skills'
-                type          = 'directory'
-                dirName       = $item.Name
-                sourceRelPath = "skills/$($item.Name)"
-                hashAtInstall = Get-DirHash $item.FullPath
-                installedAt   = (Get-Date).ToString('o')
-            })
+                    name          = $item.Name
+                    category      = 'skills'
+                    type          = 'directory'
+                    dirName       = $item.Name
+                    sourceRelPath = "skills/$($item.Name)"
+                    hashAtInstall = Get-DirHash $item.FullPath
+                    installedAt   = (Get-Date).ToString('o')
+                })
         }
     }
 }
@@ -851,9 +905,11 @@ if ($script:UserSubscriptionEntries.Count -gt 0) {
 Write-Host ""
 if ($Uninstall) {
     Log "User-level uninstall complete." 'SUCCESS'
-} elseif ($DryRun) {
+}
+elseif ($DryRun) {
     Log "Dry run complete. Re-run without -DryRun to apply." 'WARN'
-} else {
+}
+else {
     Log "$totalInstalled user-level resource(s) installed/updated." 'SUCCESS'
     if ($totalInstalled -gt 0) {
         if (-not $SkipAgents -or -not $SkipInstructions) {

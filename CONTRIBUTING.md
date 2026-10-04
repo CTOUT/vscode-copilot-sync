@@ -46,6 +46,11 @@ Feature requests are welcome! Please include:
 5. **Test your changes**:
 
    ```powershell
+   # Automated quality gates (matching CI workflows)
+   npm run format                       # Prettier check & format
+   npm run spellcheck                   # CSpell dictionary validation
+   npx markdownlint-cli "**/*.md"      # Markdown accessibility & linting
+
    # Full dry run (no files written)
    .\configure.ps1 -DryRun
 
@@ -133,9 +138,11 @@ Before submitting a PR, verify:
 - [ ] Scripts run without errors
 - [ ] No hardcoded personal paths
 - [ ] Portable paths using `$HOME` and `$env:APPDATA`
-- [ ] Logging works correctly (`Log` helper, not `Write-Host`)
-- [ ] Error handling covers edge cases
+- [ ] Path boundary validation (`Assert-PathWithin`) on write and delete operations
+- [ ] Logging uses `Log` / `Write-CopilotLog` from `scripts/lib/Common.ps1`
+- [ ] Error handling covers edge cases with `$ErrorActionPreference = 'Stop'`
 - [ ] `-DryRun` / `-Plan` produces correct output without writing files
+- [ ] Quality gates pass (`npm run format`, `npm run spellcheck`, markdownlint)
 - [ ] No breaking changes to existing functionality
 - [ ] Documentation updated
 - [ ] CHANGELOG.md updated

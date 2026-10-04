@@ -2,6 +2,60 @@
 
 ## [Unreleased]
 
+## [v2.4.0] — 2026-10-04
+
+### Added
+
+- **Conditional HTTP validation & offline catalogue fallback**:
+  - `scripts/sync-awesome-copilot.ps1`: Added HTTP conditional validation headers (`If-None-Match` for `ETag` and `If-Modified-Since` for `Last-Modified`) when fetching upstream `llms.txt`. If upstream is unchanged, the server returns HTTP 304 Not Modified; the script reuses cached catalogue data in <1s with 0 bytes transferred.
+  - Offline fallback: Saves raw `llms.txt` to `~/.awesome-copilot/llms.txt` and gracefully falls back to local cache if network connectivity is degraded or unavailable.
+- **Shared Common Library (`scripts/lib/Common.ps1`)**:
+  - Created a shared foundational library unifying core primitives across scripts: `Assert-PathWithin` (path traversal guard), `Get-DirHash` (SHA-256 tree hashing), `Write-CopilotLog` and `Log` (WCAG-compliant timestamped logging), `Resolve-PromptsDirectory` and `Resolve-SkillsDirectory` (cross-platform path resolution), `Get-FrontmatterDescription` / `Get-Description` (markdown metadata extraction), and `Show-OGV` / `Show-FzfPicker` (interactive GUI and CLI selection).
+- **Security hardening & path traversal containment (`Assert-PathWithin`)**:
+  - `scripts/lib/Config.ps1`, `scripts/init-repo.ps1`, `scripts/init-user.ps1`, `scripts/update-repo.ps1`, `scripts/update-user.ps1`: Added canonical path validation function `Assert-PathWithin`. Enforces that every file copy, directory installation, and removal target strictly resides within authorized base directories (`.github/` for repository targets, `%APPDATA%\Code\User\prompts\` and `~/.copilot/skills/` for user targets).
+  - `scripts/sync-awesome-copilot.ps1`: Added path sanitization to the `llms.txt` catalogue parser, rejecting items containing `..` or path navigation tokens and verifying that local paths remain within the destination root.
+  - Strict error handling: Enforced `$ErrorActionPreference = 'Stop'` across `scripts/lib/Config.ps1` and `scripts/lib/AssetSchema.ps1`.
+- **Accessibility & terminal contrast enhancements**:
+  - Console contrast: Replaced `DarkGray` secondary text and prompts with `Gray` across `configure.ps1`, `scripts/init-repo.ps1`, and `scripts/init-user.ps1`, ensuring WCAG AA contrast compliance across diverse dark terminal themes.
+  - Multi-modal status indication: Replaced low-contrast terminal colors (`DarkCyan`, `DarkYellow`, `DarkMagenta`) in item lists with high-contrast tones (`Gray`, `White`, `Magenta`, `Yellow`) paired with text badges (`[★]`, `[*]`, `[↑]`, `[~]`, `[U]`, `[!]`), guaranteeing full legibility for colorblind and monochrome terminal users.
+  - Markdown accessibility: Fixed heading hierarchy and pseudo-heading emphasis violations in `CHANGELOG.md` and `TODO.md`, ensuring full compliance with `markdownlint` and screen reader accessibility standards.
+
+- **Vendor prefix isolation in `Measure-ItemRelevance`**:
+  - `scripts/init-repo.ps1`: Added vendor-prefix blocklist (`dataverse`, `salesforce`, `shopify`, `pcf`, `arize`, `neon`, etc.) to prevent vendor-specific packages (e.g. `dataverse-python-*`) from receiving name, title, or description matches against generic language/stack keywords unless that vendor prefix was detected in repository signals.
+- **Cross-platform user prompt directory auto-detection**:
+  - `scripts/init-repo.ps1`, `scripts/init-user.ps1`, `scripts/update-user.ps1`: Default prompts directory now detects `$IsMacOS` (`~/Library/Application Support/Code/User/prompts`), `$IsLinux` (`~/.config/Code/User/prompts` respecting `$env:XDG_CONFIG_HOME`), and Windows fallback (`%APPDATA%\Code\User\prompts`).
+- **Pre-computed `requiresSetup` metadata and in-memory fast path**:
+  - `scripts/sync-awesome-copilot.ps1`: Inspects files at sync time and stores `"requiresSetup": true|false` directly in `~/.awesome-copilot/catalogue.json`.
+  - `scripts/init-repo.ps1` & `scripts/init-user.ps1`: Catalogue builders (`Build-FlatCatalogue`, `Build-DirCatalogue`, `Build-UserCatalogue`, `Build-UserSkillsCatalogue`) now look up `RequiresSetup` and curated descriptions from memory, eliminating disk reads across hundreds of items.
+  - `scripts/init-repo.ps1`: Removed disk fallback loop from `Measure-ItemRelevance` for 100% in-memory scoring.
+- **Refined user-level recommendation scoring**:
+  - `scripts/init-user.ps1`: `Measure-GeneralRelevance` now accepts `Title` and `Description`, evaluating technology negative filters against curated titles and positive engineering methodology signals against descriptions.
+- **Cross-platform interactive terminal picker**:
+  - `scripts/init-repo.ps1` & `scripts/init-user.ps1`: Added `Show-FzfPicker` supporting fuzzy multi-select in terminal when `fzf` is installed on PATH. Enhanced console menu with `rec` / `recommended` / `r` shortcut to instantly select all recommended items, and added `all` support to removal menus.
+- **POSIX `/bin/sh` bootstrap wrapper**:
+  - `run.sh`: Lightweight POSIX shell wrapper for macOS and Linux that validates `pwsh` installation, displays actionable platform-specific installation instructions if missing, and dispatches subcommands (`repo`, `user`, `update`, `sync`, `configure`) transparently.
+- **Persistent configuration manager**:
+  - `scripts/lib/Config.ps1`: Persistent configuration manager reading and writing `~/.awesome-copilot/config.json`.
+  - `configure.ps1`: Added `-ShowConfig` parameter and wired default categories and scope from configuration.
+- **Canonical Asset Schema**:
+  - `schemas/canonical-asset.schema.json`: Formal JSON Schema for canonical AI asset definitions across repositories and target ecosystems.
+  - `scripts/lib/AssetSchema.ps1`: PowerShell constructor (`New-CanonicalAsset`) and converter (`ConvertTo-CanonicalAsset`) transforming raw catalogue items into canonical assets.
+- **Hybrid sync & curated `llms.txt` catalogue indexing**:
+  - `scripts/sync-awesome-copilot.ps1`: Fetches and indexes the official `llms.txt` catalogue (`https://awesome-copilot.github.com/llms.txt`), generating a structured metadata cache (`~/.awesome-copilot/catalogue.json`) containing human-readable titles, official descriptions, and direct URLs for all 842 curated resources.
+  - `scripts/init-repo.ps1` & `scripts/init-user.ps1`: Selection UI displays clean, human-readable titles alongside resource identifiers and official descriptions.
+  - Enhanced recommendation scoring: `Measure-ItemRelevance` scores detected repo tech keywords against curated titles and descriptions.
+
+### Changed
+
+- **DRY & KISS codebase refactoring**:
+  - `configure.ps1`, `scripts/init-repo.ps1`, `scripts/init-user.ps1`, `scripts/update-repo.ps1`, `scripts/update-user.ps1`, `scripts/sync-awesome-copilot.ps1`, and `scripts/lib/Config.ps1`: Dot-source `scripts/lib/Common.ps1`, eliminating duplicate implementations of logging, hash calculation, path assertions, and interactive pickers. Reduced boilerplate across the repository while preserving full backward compatibility.
+- **Streamlined core categories (`agents,instructions,skills`)**:
+  - `scripts/sync-awesome-copilot.ps1`: Default `$Categories` updated to `'agents,instructions,skills'`. Drops unnecessary sparse checkout overhead from non-Copilot customization categories (such as GitHub agentic workflows and SDK cookbook recipes).
+  - `scripts/init-repo.ps1`: Defaults to presenting pickers for the 3 core Copilot primitives (`agents`, `instructions`, `skills`). Advanced/distribution categories (`hooks`, `plugins`, `workflows`) remain accessible by passing `-Category` or explicit parameter switches.
+  - `scripts/sync-awesome-copilot.ps1`: Mass-removal threshold calculation updated to compare removals only against items in the active `$CategoriesList`, preventing false-positive breaking-change warnings when category selections are narrowed.
+  - `configure.ps1`: Prompts and parameter documentation updated to reflect the 3 core Copilot primitives.
+  - `README.md` & `llms.txt`: Updated cache structure, category tables, and descriptions to reflect the hybrid sync model.
+
 ---
 
 ## [v2.3.0] — 2026-06-23
@@ -52,16 +106,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `configure.ps1`: Step 1.5 label updated from `"User-level agents (available in all repos)"` to `"User-level resources (agents, instructions & skills — available in all repos)"`.
 - `configure.ps1`: Y/N prompt text updated from `"Add user-level agents to VS Code?"` to `"Add/update user-level resources (agents, instructions & skills)?"` with a second line `"These are available in ALL repos — no .github/ needed."`. Reflects that agents, instructions, and skills are all managed by this step since v2.0.0.
 
-### Testing
-
-- `configure.ps1 -Uninstall repo` / `user` / `both` — `[ValidateSet]` enforced; `'both-things'` rejected at parameter binding.
-- `configure.ps1 -Uninstall both -DryRun` — `$SkipSync = $true` only; both user (`init-user -Uninstall`) and repo (`init-repo -Uninstall`) steps fire.
-- `configure.ps1 -Uninstall repo -DryRun` — `$SkipUser = $true`; only repo step fires.
-- `configure.ps1 -Uninstall user -DryRun` — `$SkipInit = $true`; only user step fires.
-- `init-user.ps1 -Bootstrap -DryRun` — correctly reports `Would register 148 untracked installation(s)` against disk state (76 agents, 17 instructions, 55 skills).
-- `init-user.ps1 -Bootstrap` — wrote `user-subscriptions.json` with exactly 148 entries; exit code 0.
-- Re-running `-Bootstrap` after manifest exists — reports `nothing to register`; exit code 0; manifest unchanged.
-
 - `scripts/init-user.ps1`: **Extended `$GeneralPositiveSegments`** — new general-purpose agent/instruction families now receive ★ recommendations:
   - `implementer` → `gem-implementer`, `polyglot-test-implementer`
   - `engineer` → `software-engineer-agent-v1`, `prompt-engineer`
@@ -93,6 +137,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Testing
 
+- `configure.ps1 -Uninstall repo` / `user` / `both` — `[ValidateSet]` enforced; `'both-things'` rejected at parameter binding.
+- `configure.ps1 -Uninstall both -DryRun` — `$SkipSync = $true` only; both user (`init-user -Uninstall`) and repo (`init-repo -Uninstall`) steps fire.
+- `configure.ps1 -Uninstall repo -DryRun` — `$SkipUser = $true`; only repo step fires.
+- `configure.ps1 -Uninstall user -DryRun` — `$SkipInit = $true`; only user step fires.
+- `init-user.ps1 -Bootstrap -DryRun` — correctly reports `Would register 148 untracked installation(s)` against disk state (76 agents, 17 instructions, 55 skills).
+- `init-user.ps1 -Bootstrap` — wrote `user-subscriptions.json` with exactly 148 entries; exit code 0.
+- Re-running `-Bootstrap` after manifest exists — reports `nothing to register`; exit code 0; manifest unchanged.
 - Scored all 203 agents against updated segment lists. Net change: **12 agents newly starred** (from 72 to 84 starred), **0 regressions** (no previously-starred agent lost its star).
 - Newly starred agents: `devtools-regression-investigator`, `gem-designer`, `gem-implementer`, `modernization`, `polyglot-test-implementer` (score ↑ to 4), `project-documenter`, `prompt-engineer` (score ↑ to 4), `se-gitops-ci-specialist`, `se-ux-ui-designer` (score ↑ to 4), `software-engineer-agent-v1`, `technical-content-evaluator`, `frontend-performance-investigator` (score ↑ to 4).
 - Confirmed all 10 new tech-specific segments correctly block their target agents.

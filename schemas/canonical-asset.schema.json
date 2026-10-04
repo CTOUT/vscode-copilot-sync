@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/copilot-sync/schemas/canonical-asset.schema.json",
+  "title": "Canonical Asset Schema",
+  "description": "Internal canonical asset representation across registries and targets.",
+  "type": "object",
+  "required": ["id", "type", "title", "source"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the asset (lowercase, dash-separated)"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "rule",
+        "instruction",
+        "agent",
+        "skill",
+        "provider",
+        "registry",
+        "workflow",
+        "plugin"
+      ],
+      "description": "Canonical asset classification"
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable display title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Short explanation of the asset's capability and purpose"
+    },
+    "source": {
+      "type": "string",
+      "description": "Origin registry or repository identifier"
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version or upstream content hash"
+    },
+    "requiresSetup": {
+      "type": "boolean",
+      "description": "Whether the asset requires external configuration (e.g. MCP server, API key)"
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Target AI ecosystems supported (e.g. copilot, cursor, claude, antigravity)"
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Asset IDs required for this asset to function"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Functional capabilities provided (e.g. docker, azure, testing)"
+    },
+    "provides": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Named outputs or context provided by the asset"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Keyword tags for categorization and search"
+    },
+    "content": {
+      "type": "string",
+      "description": "Raw markdown or textual body of the asset"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional platform-specific metadata or parameters"
+    }
+  }
+}

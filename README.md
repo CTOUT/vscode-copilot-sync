@@ -1,22 +1,21 @@
 # VS Code Copilot Resource Sync
 
-A PowerShell toolkit to sync, install, and manage [GitHub Copilot](https://github.com/features/copilot) agents, hooks, instructions, plugins, skills, and workflows from the [awesome-copilot](https://github.com/github/awesome-copilot) community catalogue — cherry-picking exactly what each repo needs, with full lifecycle management. Works on Windows, macOS, and Linux.
+A PowerShell toolkit to sync, install, and manage [GitHub Copilot](https://github.com/features/copilot) agents, instructions, and skills from the [awesome-copilot](https://github.com/github/awesome-copilot) community catalogue — cherry-picking exactly what each repo needs, with full lifecycle management. Works on Windows, macOS, and Linux.
 
 ## What This Does
 
-1. **Syncs** the latest agents, hooks, instructions, plugins, skills, and workflows from [awesome-copilot](https://github.com/github/awesome-copilot) into a local cache (`~/.awesome-copilot/`)
+1. **Syncs** the latest agents, instructions, and skills from [awesome-copilot](https://github.com/github/awesome-copilot) into a local cache (`~/.awesome-copilot/`) using git sparse checkout alongside the curated `llms.txt` catalogue
 2. **Initialises repos** — intelligently recommends and installs resources into a repo's `.github/` folder based on detected language/framework, with full install/update/remove lifecycle management
 
 ### What goes where
 
-| Resource         | Location                                                                                             |
-| ---------------- | ---------------------------------------------------------------------------------------------------- |
-| **Agents**       | `.github/agents/`                                                                                    |
-| **Hooks**        | `.github/hooks/<name>/`                                                                              |
-| **Instructions** | `.github/instructions/`                                                                              |
-| **Plugins**      | Components distributed to their respective locations above; `plugin.json` → `.github/plugin/<name>/` |
-| **Skills**       | `.github/skills/`                                                                                    |
-| **Workflows**    | `.github/workflows/`                                                                                 |
+| Resource         | Location                | Description                                                        |
+| ---------------- | ----------------------- | ------------------------------------------------------------------ |
+| **Agents**       | `.github/agents/`       | Custom Copilot personas (`*.agent.md`)                             |
+| **Instructions** | `.github/instructions/` | Code standards and conventions (`*.instructions.md`)               |
+| **Skills**       | `.github/skills/`       | Multi-file task packages (`<skill-name>/` folders with `SKILL.md`) |
+
+> **Note:** Advanced/distribution categories (`hooks`, `plugins`, `workflows`) remain supported via the `-Category` parameter if explicitly requested.
 
 ## Prerequisites
 
@@ -25,14 +24,17 @@ A PowerShell toolkit to sync, install, and manage [GitHub Copilot](https://githu
 - **`gh` (GitHub CLI) or `git`** — `gh` preferred ([Download GitHub CLI](https://cli.github.com/)); handles auth automatically
 - **Internet connection** for initial sync
 
-> **macOS / Linux:** the scripts are compatible with `pwsh` on all platforms. The one difference is the VS Code user directory path — pass `-PromptsDir` explicitly if `init-user.ps1` cannot locate it automatically:
+> **macOS & Linux:** Scripts run natively with `pwsh`. A POSIX wrapper (`run.sh`) is provided for seamless execution without invoking `pwsh` directly:
 >
-> | Platform | `-PromptsDir` value                               |
-> | -------- | ------------------------------------------------- |
-> | macOS    | `~/Library/Application Support/Code/User/prompts` |
-> | Linux    | `~/.config/Code/User/prompts`                     |
+> ```bash
+> ./run.sh configure                     # Run configure.ps1
+> ./run.sh repo                          # Run init-repo.ps1
+> ./run.sh user                          # Run init-user.ps1
+> ./run.sh update                        # Run update-repo.ps1
+> ./run.sh sync                          # Run sync-awesome-copilot.ps1
+> ```
 >
-> `Out-GridView` is also Windows-only; the scripts fall back to a numbered console menu automatically on macOS and Linux.
+> User directory paths on macOS (`~/Library/Application Support/Code/User/prompts`) and Linux (`~/.config/Code/User/prompts`) are resolved automatically. Terminal fuzzy picking is supported via `fzf` when installed, falling back to a numbered console menu.
 
 ## Quick Start
 
@@ -72,7 +74,7 @@ cd vscode-copilot-sync
 
 ### 3. Configure a Repo
 
-Run from inside any repo to add agents, hooks, instructions, plugins, skills, and workflows to `.github/`:
+Run from inside any repo to add agents, instructions, and skills to `.github/`:
 
 ```powershell
 cd C:\Projects\my-app
@@ -125,10 +127,10 @@ Locally modified files are flagged with `[~]` before removal so you don't accide
 ├── .git/                  # Git metadata (managed automatically)
 ├── agents/                # *.agent.md
 ├── instructions/          # *.instructions.md
-├── workflows/             # *.md
-├── hooks/                 # <hook-name>/ directories
-├── skills/                # <skill-name>/ directories
-├── plugins/               # <plugin-name>/ directories (agents + skills + plugin.json)
+├── skills/                # <skill-name>/ directories (SKILL.md + assets)
+├── catalogue.json         # Curated catalogue metadata from llms.txt (titles, descriptions)
+├── config.json            # Persistent user configuration (registries, defaults)
+├── llms.txt               # Raw offline cache of curated catalogue
 └── manifest.json          # Sync state (hashes, timestamps, counts)
 ```
 
@@ -259,6 +261,7 @@ Chains sync → user-level → repo init in one command.
 .\configure.ps1 -Uninstall -Scope user               # Remove user-level resources
 .\configure.ps1 -Uninstall                           # Remove both repo + user resources
 .\configure.ps1 -RepoPath "C:\Projects\my-app"      # Target specific repo
+.\configure.ps1 -ShowConfig                          # Display persistent configuration
 .\configure.ps1 -DryRun                              # Preview all changes
 ```
 
@@ -268,15 +271,18 @@ Chains sync → user-level → repo init in one command.
 
 Clones (first run) or pulls (subsequent runs) `github/awesome-copilot` as a sparse git checkout.
 
-- Only downloads the categories you need (`agents`, `hooks`, `instructions`, `plugins`, `skills`, `workflows` by default)
+- Only downloads the categories you need (`agents`, `instructions`, `skills` by default)
+- Indexes the official `llms.txt` catalogue for human-readable titles, rich descriptions, and better recommendation scoring
+- Employs HTTP conditional requests (`ETag` / `If-Modified-Since`) returning HTTP 304 to skip downloading and indexing unchanged catalogues
+- Stores an offline raw cache in `~/.awesome-copilot/llms.txt` with graceful fallback on network loss
 - SHA256 hash manifest tracks added/updated/removed counts across runs
 - Auto-recovers from merge conflicts in the local cache
 - Prefers `gh` CLI for auth; falls back to `git`
 
 ```powershell
-.\scripts\sync-awesome-copilot.ps1                          # Sync all categories
+.\scripts\sync-awesome-copilot.ps1                          # Sync default categories
 .\scripts\sync-awesome-copilot.ps1 -Plan                    # Dry run
-.\scripts\sync-awesome-copilot.ps1 -Categories "agents,instructions"
+.\scripts\sync-awesome-copilot.ps1 -Categories "agents,skills"
 .\scripts\sync-awesome-copilot.ps1 -GitTool git             # Force git
 .\scripts\sync-awesome-copilot.ps1 -Force                   # Skip safety checks
 ```
@@ -305,7 +311,7 @@ Interactively selects and installs Copilot resources into `.github/`.
 .\scripts\init-repo.ps1 -RepoPath "C:\Projects\my-app"
 .\scripts\init-repo.ps1 -DryRun                             # Preview
 .\scripts\init-repo.ps1 -Uninstall                          # Remove resources
-.\scripts\init-repo.ps1 -SkipHooks -SkipWorkflows           # Skip categories
+.\scripts\init-repo.ps1 -SkipAgents                         # Skip categories
 .\scripts\init-repo.ps1 -Category "agents,skills"           # Show only agents + skills pickers
 .\scripts\init-repo.ps1 -Agents "devops-expert,se-security-reviewer" -Instructions "powershell"
 ```
@@ -377,6 +383,16 @@ Reads `~/.awesome-copilot/user-subscriptions.json` and refreshes installed user-
 
 ## Configuration
 
+### Persistent Configuration (`config.json`)
+
+The toolkit supports persistent configuration stored in `~/.awesome-copilot/config.json`. To inspect current settings:
+
+```powershell
+.\configure.ps1 -ShowConfig
+```
+
+This file configures default synchronisation scopes, default category sets, custom registries, and directory overrides without needing command-line flags on every run.
+
 ### Authentication
 
 `gh` CLI is preferred — inherits from `gh auth login`, no extra setup. If only `git` is available, the public `github/awesome-copilot` repo requires no credentials. For private forks, configure git credentials as usual.
@@ -441,6 +457,12 @@ Run `.\configure.ps1 -Update` whenever you want to pull upstream additions. This
 | [Symdicate](https://github.com/CTOUT/Symdicate)              | Composable multi-agent framework for GitHub Copilot — persona grafting, cognitive identity caching, and agent fusion            |
 | [ReFrame](https://github.com/CTOUT/ReFrame)                  | GitHub Copilot agent for PC game configuration optimisation — detects hardware and recommends targeted performance improvements |
 | [awesome-copilot](https://github.com/github/awesome-copilot) | The community catalogue that vscode-copilot-sync syncs from                                                                     |
+
+## Security & Accessibility
+
+- **Security Architecture:** Strictly isolates local environments, enforces `$ErrorActionPreference = 'Stop'`, and guards against path traversal with `Assert-PathWithin` across all write and update operations. See [SECURITY.md](SECURITY.md) for vulnerability reporting and containment details.
+- **Terminal Accessibility:** Every status indicator pairs ANSI colour with unambiguous text symbols (`[★]`, `[*]`, `[↑]`, `[~]`, `[U]`, `[!]`), ensuring full legibility on monochrome terminals and for users with protanopia, deuteranopia, or low vision. Contrast adheres to WCAG standards across dark and light terminal themes.
+- **Interactive Navigation:** Terminal fuzzy filtering via `fzf` includes keyboard shortcuts (`TAB` to toggle, `ENTER` to confirm, `ESC` to cancel), and GUI selection via `Out-GridView` provides taskbar notification alerts when backgrounded.
 
 ---
 

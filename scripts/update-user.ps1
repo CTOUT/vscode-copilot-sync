@@ -6,9 +6,14 @@ written by init-user.ps1, compares each subscribed resource against the local
 awesome-copilot cache, and applies any upstream updates.
 
 Handles all three user-level resource types:
-  Agents       -- %APPDATA%\Code\User\prompts\*.agent.md
-  Instructions -- %APPDATA%\Code\User\prompts\*.instructions.md
+  Agents       -- User Prompts dir (*.agent.md)
+  Instructions -- User Prompts dir (*.instructions.md)
   Skills       -- ~/.copilot/skills/<skill-name>/
+
+  Default Prompts Directory:
+    Windows: %APPDATA%\Code\User\prompts
+    macOS:   ~/Library/Application Support/Code/User/prompts
+    Linux:   ~/.config/Code/User/prompts (or $XDG_CONFIG_HOME/Code/User/prompts)
 
 Usage:
   # Check for and apply updates (interactive prompt)
@@ -38,8 +43,8 @@ Notes:
 #>
 [CmdletBinding()] param(
     [string]$SourceRoot = "$HOME/.awesome-copilot",
-    [string]$PromptsDir = "$env:APPDATA\Code\User\prompts",
-    [string]$SkillsDir  = "$HOME/.copilot/skills",
+    [string]$PromptsDir = '',
+    [string]$SkillsDir  = '',
     [switch]$Force,
     [switch]$DryRun,
     [string]$Category = ''  # Comma-separated categories to check (e.g. 'agents,skills'); all checked if omitted
@@ -48,20 +53,11 @@ Notes:
 #region Initialisation
 $ErrorActionPreference = 'Stop'
 
-function Log($m, [string]$level = 'INFO') {
-    $ts = (Get-Date).ToString('s')
-    $color = switch ($level) { 'ERROR' { 'Red' } 'WARN' { 'Yellow' } 'SUCCESS' { 'Green' } default { 'Cyan' } }
-    Write-Host "[$ts][$level] $m" -ForegroundColor $color
-}
+$CommonLib = Join-Path $PSScriptRoot 'lib\Common.ps1'
+if (Test-Path $CommonLib) { . $CommonLib }
 
-function Get-DirHash([string]$DirPath) {
-    $hashes   = Get-ChildItem $DirPath -Recurse -File | Sort-Object FullName |
-                ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash }
-    $combined = $hashes -join '|'
-    $bytes    = [System.Text.Encoding]::UTF8.GetBytes($combined)
-    $stream   = [System.IO.MemoryStream]::new($bytes)
-    return (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash
-}
+if (-not $PromptsDir) { $PromptsDir = Resolve-PromptsDirectory }
+if (-not $SkillsDir)  { $SkillsDir  = Resolve-SkillsDirectory }
 
 #endregion # Initialisation
 
@@ -174,14 +170,17 @@ foreach ($item in $stale) {
     $sub = $item.Sub
     try {
         if ($sub.type -eq 'file') {
+            Assert-PathWithin -Path $item.DestPath -ParentDirectory $PromptsDir
             $destDir = Split-Path $item.DestPath -Parent
             if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
             Copy-Item $item.SourcePath $item.DestPath -Force
         } else {
+            Assert-PathWithin -Path $item.DestPath -ParentDirectory $SkillsDir
             # Mirror all files from the source directory into the destination
             Get-ChildItem $item.SourcePath -File -Recurse | ForEach-Object {
                 $rel     = $_.FullName.Substring($item.SourcePath.Length).TrimStart('\', '/')
                 $dest    = Join-Path $item.DestPath $rel
+                Assert-PathWithin -Path $dest -ParentDirectory $item.DestPath
                 $destDir = Split-Path $dest -Parent
                 if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
                 Copy-Item $_.FullName $dest -Force

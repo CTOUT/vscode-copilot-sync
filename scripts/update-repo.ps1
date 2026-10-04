@@ -45,21 +45,8 @@ Notes:
 #region Initialisation
 $ErrorActionPreference = 'Stop'
 
-function Log($m, [string]$level = 'INFO') {
-    $ts = (Get-Date).ToString('s')
-    $color = switch ($level) { 'ERROR' { 'Red' } 'WARN' { 'Yellow' } 'SUCCESS' { 'Green' } default { 'Cyan' } }
-    Write-Host "[$ts][$level] $m" -ForegroundColor $color
-}
-
-function Get-DirHash([string]$DirPath) {
-    $hashes = Get-ChildItem $DirPath -Recurse -File |
-              Sort-Object FullName |
-              ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash }
-    $combined = $hashes -join '|'
-    $bytes    = [System.Text.Encoding]::UTF8.GetBytes($combined)
-    $stream   = [System.IO.MemoryStream]::new($bytes)
-    return (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash
-}
+$CommonLib = Join-Path $PSScriptRoot 'lib\Common.ps1'
+if (Test-Path $CommonLib) { . $CommonLib }
 
 #endregion # Initialisation
 
@@ -205,6 +192,7 @@ foreach ($item in $stale) {
                 $compSrcPath  = Join-Path $SourceRoot $comp.srcRel
                 $compDestPath = Join-Path $GithubDir  $comp.destRel
                 if (-not (Test-Path $compSrcPath)) { continue }
+                Assert-PathWithin -Path $compDestPath -ParentDirectory $GithubDir
                 $compDestDir = Split-Path $compDestPath -Parent
                 if (-not (Test-Path $compDestDir)) { New-Item -ItemType Directory -Path $compDestDir -Force | Out-Null }
                 if ($comp.type -eq 'skill') {
@@ -212,6 +200,7 @@ foreach ($item in $stale) {
                     Get-ChildItem $compSrcPath -File -Recurse | ForEach-Object {
                         $rel     = $_.FullName.Substring($compSrcPath.Length).TrimStart('\', '/')
                         $dest    = Join-Path $compDestPath $rel
+                        Assert-PathWithin -Path $dest -ParentDirectory $compDestPath
                         $destDir = Split-Path $dest -Parent
                         if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
                         Copy-Item $_.FullName $dest -Force
@@ -221,14 +210,17 @@ foreach ($item in $stale) {
                 }
             }
         } elseif ($sub.type -eq 'file') {
+            Assert-PathWithin -Path $item.DestPath -ParentDirectory $GithubDir
             $destDir = Split-Path $item.DestPath -Parent
             if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
             Copy-Item $item.SourcePath $item.DestPath -Force
         } else {
             # Mirror all files from the source directory into the destination
+            Assert-PathWithin -Path $item.DestPath -ParentDirectory $GithubDir
             Get-ChildItem $item.SourcePath -File -Recurse | ForEach-Object {
                 $rel     = $_.FullName.Substring($item.SourcePath.Length).TrimStart('\', '/')
                 $dest    = Join-Path $item.DestPath $rel
+                Assert-PathWithin -Path $dest -ParentDirectory $item.DestPath
                 $destDir = Split-Path $dest -Parent
                 if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
                 Copy-Item $_.FullName $dest -Force

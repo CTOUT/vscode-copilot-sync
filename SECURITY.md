@@ -33,19 +33,20 @@ We ask that you give us reasonable time to address the issue before any public d
 
 This repository contains:
 
-- PowerShell scripts (`configure.ps1`, `scripts/*.ps1`) that clone/pull from [github/awesome-copilot](https://github.com/github/awesome-copilot) and write files into a target repository's `.github/` folder and the VS Code user prompts directory
-- No agent definitions, installer one-liners, or release workflows at this time
+- PowerShell scripts (`configure.ps1`, `scripts/*.ps1`, `scripts/lib/*.ps1`) that clone/pull from [github/awesome-copilot](https://github.com/github/awesome-copilot) and write files into a target repository's `.github/` folder and VS Code user directories
+- POSIX shell wrapper (`run.sh`) and GitHub Actions automation workflows (`.github/workflows/`)
 
 Vulnerabilities in any of these are in scope. Areas of particular interest:
 
 - **Remote content execution**: the sync scripts fetch file content from a third-party repository and write it directly to your local filesystem. A compromised upstream repository could introduce malicious instruction, agent, or workflow files.
-- **Path traversal**: filenames sourced from the upstream repository are used to construct destination paths. A crafted filename (e.g. `../../evil.ps1`) could write outside the intended `.github/` or prompts directory.
+- **Path traversal**: filenames sourced from the upstream repository are used to construct destination paths. A crafted filename (e.g. `../../evil.ps1`) could attempt to write outside the intended `.github/` or prompts directory.
 - **`gh` / `git` invocations**: the scripts shell out to `gh` or `git`. Ensure neither is replaced with a malicious binary on your `PATH`.
 - **VS Code user prompts directory**: files written to `%APPDATA%\Code\User\prompts\` (or the platform equivalent) are picked up by GitHub Copilot for all repositories. A malicious file installed here has broad impact.
 
 ## Script Security Notes
 
-- All destination paths are resolved with `Resolve-Path` / `Join-Path` and validated to remain within the intended base directory before writing.
+- All destination paths are validated using canonical boundary validation (`Assert-PathWithin` in `scripts/lib/Common.ps1`) to ensure all write and remove targets remain strictly within authorized directories.
+- Upstream catalogue parsing (`llms.txt` in `scripts/sync-awesome-copilot.ps1`) sanitizes and validates relative paths against directory traversal tokens (`..`).
 - The scripts do **not** execute any of the content they download — they copy files only.
 - A `-DryRun` / `-Plan` flag is available on all scripts to preview changes without writing any files:
 

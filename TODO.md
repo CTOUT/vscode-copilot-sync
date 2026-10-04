@@ -1,41 +1,78 @@
-# TODO
+# Roadmap & Backlog
 
-## Open Issues
+## Overview
 
-### DataVerse false ★ recommendations for repos with `.py` files
+This backlog tracks outstanding tasks for the project's evolution from a VS Code utility into a cross-platform, platform-agnostic AI agent and context manager.
 
-- `.py` files trigger `python` keyword → `dataverse-python-*` scores 2 (contains `python` as a dash-segment)
-- Reproduced with: `.\configure.ps1 -Install -RepoPath ..\Scripts\`
-- Root cause: generic language keywords match vendor-prefixed item names
-- **Proposed fix:** maintain a known vendor-prefix blocklist (`dataverse`, `salesforce`, `shopify`, `atlassian`, `pimcore`, `amplitude`, etc.). Items whose first segment is in the blocklist should not receive a name-match score from generic language keywords — only from an explicit vendor keyword detected in the repo.
+> For completed features, bug fixes, and historical milestones (Phases 1–3), see [CHANGELOG.md](CHANGELOG.md).
 
-### Cross-platform: auto-detect VS Code user directory on macOS and Linux
+### Architectural Strategy on Shell Environments
 
-- `$env:APPDATA` is Windows-only; `init-user.ps1` and `update-user.ps1` default `-PromptsDir` to `$env:APPDATA\Code\User\prompts`
-- macOS path: `~/Library/Application Support/Code/User/prompts`
-- Linux path: `~/.config/Code/User/prompts`
-- **Proposed fix:** detect platform via `$IsWindows` / `$IsMacOS` / `$IsLinux` and set the default path accordingly; document in README (already done as a manual workaround note)
+- **Full Bash Engine Rewrite:** Evaluated and rejected. Maintaining parallel ~2,500-line PowerShell and Bash engines creates a dual-maintenance trap. macOS ships with Bash 3.2 (2007, lacking associative arrays and modern features), Zsh is the default macOS shell, and external tools like `jq` are not installed by default.
+- **Adopted Strategy:**
+  1. _Near-Term (v1.x):_ Unified PowerShell 7 core engine with a thin POSIX `/bin/sh` wrapper (`run.sh`) for frictionless execution on macOS and Linux (completed).
+  2. _Long-Term (v3.0):_ Leapfrog Bash entirely into a compiled native binary (Go/Rust) or TypeScript CLI (`npx`), providing true zero-dependency cross-platform execution (Phase 5).
 
-### OGV opens behind other windows
+---
 
-- Windows UIPI prevents focus-stealing from background processes by design
-- Three approaches tried and failed: `SetForegroundWindow`, `keybd_event(Alt)`, `WScript.Shell.AppActivate` from runspace
-- Currently mitigated with a yellow hint message in the terminal
-- Possible alternative: investigate WinForms-based topmost picker as a drop-in replacement for `Out-GridView`
+## Phase 4: Platform-Agnostic Context & Target Adapters
 
-### Cross-platform: selection without `Out-GridView`
+> **Scope:** High difficulty · Target: v2.0
 
-- `Out-GridView` is not available on macOS/Linux, so the install-selection scripts can produce a long, hard-to-manage command-line list
-- `sync-awesome-copilot.ps1` works because it avoids the GridView flow, while the other scripts still rely on it for interactive choices
-- **Proposed fix:** add a CLI-friendly selection mode that supports interactive choices without `Out-GridView`, including a `Recommended` option so users can install the suggested set without specifying explicit IDs or `All`
-- **Proposed validation:** test on macOS/Linux and document the fallback behavior in the README
+### 4.1 Translation Layer / Target Adapters
 
-### Configuration file support
+- **Status:** Planned
+- **Difficulty:** High (1–2 days)
+- **Dependencies:** Canonical Asset Schema (completed in `schemas/canonical-asset.schema.json` and `scripts/lib/AssetSchema.ps1`)
+- **Objective:** Decouple upstream resource ingestion from specific editor installations via a canonical asset model and target adapter interface:
+  - **Instruction / Rule:** Passive guidelines and repo standards
+  - **Agent / Persona:** Subagents with explicit roles, identity, tools, and prompts
+  - **Skill:** Executable capability bundles (`SKILL.md`, scripts, references)
+  - **Tool / Provider:** MCP server definitions and environment configs
+- **Target Adapters:**
+  - **GitHub Copilot:** `.github/agents/`, `.github/instructions/`, `.github/skills/`, and user prompts
+  - **Cursor:** `.cursor/rules/*.mdc` and `.cursorrules`
+  - **Claude Code:** `CLAUDE.md` and user tool definitions
+  - **Open Standards:** Canonical `AGENTS.md` and `llms.txt`
+  - **Cline / Roo Code / Continue:** `.clinerules`, `mcp.json`, and custom modes
 
-- Users currently configure everything via command-line parameters; there is no persistent config file
-- **Proposed approach:** YAML or JSON config file (e.g. `~/.awesome-copilot/config.yml`) storing preferred categories, default paths, and skip flags so they don't need to be passed on every run
+### 4.2 Decentralized Registries via `llms.txt`
 
-### PowerShell module packaging
+- **Status:** Planned
+- **Difficulty:** Medium-High (1–2 days)
+- **Dependencies:** 4.1, `scripts/lib/Config.ps1`
+- **Objective:** Treat `llms.txt` as a discovery manifest and registry entrypoint. Allow adding arbitrary upstream endpoints (public repositories, internal enterprise networks, or team URLs) serving an `llms.txt` file, enabling asset discovery and synchronization without full git clones or centralized package registries.
 
-- Scripts are currently used by cloning this repo directly
-- **Proposed approach:** package as a PowerShell module published to the PowerShell Gallery (`Install-Module vscode-copilot-sync`); would remove the clone-and-path requirement and simplify updates
+---
+
+## Phase 5: Rebranding & Standalone Zero-Dependency CLI
+
+> **Scope:** High difficulty · Target: v3.0
+
+### 5.1 Rebranding & Universal CLI Architecture
+
+- **Status:** Conceptual
+- **Difficulty:** Medium (1 day)
+- **Dependencies:** Phase 4
+- **Objective:** Rebrand project (e.g. `agent-sync`, `ctxmgr`, or `ai-context-sync`) and align CLI verbs around universal actions (`install`, `sync`, `search`, `remove`).
+
+### 5.2 Standalone Compiled Binary or Node CLI Distribution
+
+- **Status:** Conceptual
+- **Difficulty:** High (2–3 days)
+- **Dependencies:** 5.1
+- **Objective:** Completely remove the PowerShell and shell runtime dependency on user machines.
+- **Implementation Options:**
+  - **Option A (Node/TypeScript CLI):** Distribute via `npx agent-sync`. Instant zero-install usage for all developers with Node.js; rich terminal UI via `@inquirer/prompts`.
+  - **Option B (Compiled Binary in Go/Rust):** Single portable executable for macOS (ARM64/x64), Linux (x64/ARM64), and Windows. Distribute via Homebrew (`brew install`), Winget, and direct GitHub Releases.
+
+---
+
+## Superseded / Deprecated Items
+
+| Original Item                               | Status                | Reason                                                                                                                                                                                                 |
+| :------------------------------------------ | :-------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **OGV opens behind other windows**          | Superseded            | Consolidated into terminal picker (`Show-FzfPicker` / console menu). A cross-platform terminal selector renders Windows UIPI focus workarounds obsolete.                                               |
+| **Selection without `Out-GridView`**        | Merged                | Consolidated into terminal picker (`Show-FzfPicker` / console menu).                                                                                                                                   |
+| **Full Bash/Zsh engine rewrite**            | Rejected / Deprecated | Dual-script maintenance trap, lack of native JSON/associative array support in macOS default Bash 3.2, and external `jq` requirements. Replaced by `run.sh` (thin wrapper) and **5.2** (compiled CLI). |
+| **PowerShell module packaging (PSGallery)** | Superseded            | Replaced by **5.2 (Standalone CLI / npm / binary distribution)**. Distributing via native binary or `npx` provides broader cross-platform adoption than a PSGallery module on Unix systems.            |

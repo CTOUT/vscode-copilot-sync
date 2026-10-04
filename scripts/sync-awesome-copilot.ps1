@@ -24,7 +24,7 @@ Usage:
 #>
 [CmdletBinding()] param(
     [string]$Dest = "$HOME/.awesome-copilot",
-    [string]$Categories = 'agents,hooks,instructions,plugins,skills,workflows',
+    [string]$Categories = 'agents,instructions,skills',
     [switch]$Quiet,
     [switch]$Plan,              # Dry-run: show what would change without writing files
     [switch]$Force,             # Skip structural-change and mass-removal safety checks
@@ -37,15 +37,21 @@ Usage:
 #region Initialisation
 $ErrorActionPreference = 'Stop'
 
+$CommonLib = Join-Path $PSScriptRoot 'lib\Common.ps1'
+if (Test-Path $CommonLib) { . $CommonLib }
+
 $script:StartTime = Get-Date
-$script:Deadline  = $script:StartTime.AddSeconds($TimeoutSeconds)
+$script:Deadline = $script:StartTime.AddSeconds($TimeoutSeconds)
+
+# Prepare log — always relative to this script's directory, regardless of CWD
+$RunId = (Get-Date -Format 'yyyyMMdd-HHmmss')
+$LogDir = Join-Path $PSScriptRoot 'logs'
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
+$script:LogFile = Join-Path $LogDir "sync-$RunId.log"
 
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
-    $ts   = (Get-Date).ToString('s')
-    $line = "[$ts][$Level] $Message"
-    if (-not $Quiet) { Write-Host $line }
-    Add-Content -Path $script:LogFile -Value $line
+    Write-CopilotLog -Message $Message -Level $Level -LogFile $script:LogFile -Quiet:$Quiet
 }
 
 function Check-Timeout {
@@ -54,12 +60,6 @@ function Check-Timeout {
         exit 1
     }
 }
-
-# Prepare log — always relative to this script's directory, regardless of CWD
-$RunId  = (Get-Date -Format 'yyyyMMdd-HHmmss')
-$LogDir = Join-Path $PSScriptRoot 'logs'
-if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
-$script:LogFile = Join-Path $LogDir "sync-$RunId.log"
 
 Write-Log "Starting Awesome Copilot sync. Dest=$Dest Categories=$Categories"
 
@@ -73,7 +73,7 @@ function Resolve-GitTool {
         }
         return $GitTool
     }
-    if (Get-Command gh  -ErrorAction SilentlyContinue) { return 'gh'  }
+    if (Get-Command gh  -ErrorAction SilentlyContinue) { return 'gh' }
     if (Get-Command git -ErrorAction SilentlyContinue) { return 'git' }
     Write-Log "Neither 'gh' nor 'git' found on PATH. Install one to continue." 'ERROR'
     exit 1
@@ -82,15 +82,18 @@ function Resolve-GitTool {
 $Tool = Resolve-GitTool
 Write-Log "Using tool: $Tool"
 
-$RepoSlug       = 'github/awesome-copilot'
-$RepoUrl        = 'https://github.com/github/awesome-copilot.git'
+$RepoSlug = 'github/awesome-copilot'
+$RepoUrl = 'https://github.com/github/awesome-copilot.git'
 $CategoriesList = $Categories.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-$ManifestPath   = Join-Path $Dest 'manifest.json'
-$StatusPath     = Join-Path $Dest 'status.txt'
+$ManifestPath = Join-Path $Dest 'manifest.json'
+$CataloguePath = Join-Path $Dest 'catalogue.json'
+$LlmsCachePath = Join-Path $Dest 'llms.txt'
+$CatalogueUrl = 'https://awesome-copilot.github.com/llms.txt'
+$StatusPath = Join-Path $Dest 'status.txt'
 
 # Load previous manifest for change detection
 $PrevManifest = $null
-$PrevIndex    = @{}
+$PrevIndex = @{}
 if (Test-Path $ManifestPath) {
     try {
         $PrevManifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
@@ -116,9 +119,11 @@ $IsFirstRun = -not (Test-Path (Join-Path $Dest '.git'))
 if ($Plan) {
     if ($IsFirstRun) {
         Write-Log "[Plan] Would clone $RepoSlug → $Dest  (sparse: $($CategoriesList -join ', '))" 'INFO'
-    } else {
+    }
+    else {
         Write-Log "[Plan] Would pull latest changes from $RepoSlug into $Dest" 'INFO'
     }
+    Write-Log "[Plan] Would fetch and index curated catalogue from $CatalogueUrl" 'INFO'
     Write-Log "[Plan] No files written. Exiting." 'INFO'
     exit 0
 }
@@ -138,17 +143,19 @@ if ($IsFirstRun) {
 
     if ($Tool -eq 'gh') {
         & gh repo clone $RepoSlug $Dest -- --depth 1 --filter=blob:none --sparse 2>&1 |
-            ForEach-Object { Write-Log $_ }
-    } else {
+        ForEach-Object { Write-Log $_ }
+    }
+    else {
         & git clone --depth 1 --filter=blob:none --sparse $RepoUrl $Dest 2>&1 |
-            ForEach-Object { Write-Log $_ }
+        ForEach-Object { Write-Log $_ }
     }
     if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Write-Log "Clone failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
 
     # Set which directories to check out, then materialise them
     & git -C $Dest sparse-checkout set @CategoriesList 2>&1 | Out-Null
     Write-Log "Repository cloned successfully." 'SUCCESS'
-} else {
+}
+else {
     Write-Log "Pulling latest changes from $RepoSlug..."
 
     # Re-apply sparse-checkout in case -Categories changed since last run
@@ -163,20 +170,123 @@ if ($IsFirstRun) {
             & git -C $Dest fetch origin 2>&1 | ForEach-Object { Write-Log $_ }
             & git -C $Dest reset --hard origin/HEAD 2>&1 | ForEach-Object { Write-Log $_ }
             if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Write-Log "Reset failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
-        } elseif ($pullText -match 'unmerged files|unresolved conflict|merge conflict') {
+        }
+        elseif ($pullText -match 'unmerged files|unresolved conflict|merge conflict') {
             # Local cache has conflicts — safe to discard since this directory is read-only managed by this script
             Write-Log "Unmerged files detected in local cache — resetting to remote HEAD..." 'WARN'
             & git -C $Dest fetch origin 2>&1 | ForEach-Object { Write-Log $_ }
             & git -C $Dest reset --hard origin/HEAD 2>&1 | ForEach-Object { Write-Log $_ }
             & git -C $Dest clean -fd 2>&1 | ForEach-Object { Write-Log $_ }
             if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Write-Log "Reset failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
-        } else {
+        }
+        else {
             Write-Log "Pull failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE
         }
     }
 }
 
 Check-Timeout
+
+#region Curated catalogue fetch (llms.txt)
+Write-Log "Checking curated catalogue index from $CatalogueUrl..."
+try {
+    $existingCatalogue = $null
+    if (Test-Path $CataloguePath) {
+        try { $existingCatalogue = Get-Content $CataloguePath -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json } catch {}
+    }
+
+    $reqHeaders = @{}
+    if (-not $Force -and $existingCatalogue) {
+        if ($existingCatalogue.etag) { $reqHeaders['If-None-Match'] = $existingCatalogue.etag }
+        if ($existingCatalogue.lastModified) { $reqHeaders['If-Modified-Since'] = $existingCatalogue.lastModified }
+    }
+
+    $response = Invoke-WebRequest -Uri $CatalogueUrl -Headers $reqHeaders -TimeoutSec 15 -SkipHttpErrorCheck -ErrorAction Stop
+
+    if ($response.StatusCode -eq 304 -and $existingCatalogue) {
+        Write-Log "Curated catalogue is unchanged (HTTP 304 Not Modified). Reusing cached catalogue ($($existingCatalogue.count) items)." 'SUCCESS'
+    }
+    elseif ($response.StatusCode -eq 200) {
+        $llmsRaw = $response.Content
+        Set-Content -Path $LlmsCachePath -Value $llmsRaw -Encoding UTF8
+
+        $etag = if ($response.Headers.ContainsKey('ETag')) { $response.Headers['ETag'] -join '' } else { $null }
+        $lastMod = if ($response.Headers.ContainsKey('Last-Modified')) { $response.Headers['Last-Modified'] -join '' } else { $null }
+
+        $catItems = @()
+        foreach ($line in ($llmsRaw -split "`n")) {
+            if ($line -match '^\s*-\s+\[([^\]]+)\]\(([^\)]+)\):\s*(.*)$') {
+                $title = $Matches[1].Trim()
+                $url = $Matches[2].Trim()
+                $desc = $Matches[3].Trim()
+
+                if ($url -match 'awesome-copilot/main/([^/]+)/(.+)$') {
+                    $cat = $Matches[1]
+                    $subPath = $Matches[2]
+                    $itemName = ''
+
+                    if ($cat -in 'agents', 'instructions') {
+                        $itemName = [System.IO.Path]::GetFileNameWithoutExtension($subPath) -replace '\.(agent|instructions)$', ''
+                    }
+                    elseif ($cat -eq 'skills') {
+                        $itemName = $subPath -replace '/SKILL\.md$', ''
+                    }
+
+                    if ($cat -match '\.\.' -or $subPath -match '\.\.' -or $itemName -match '[\\/]|^\.\.') { continue }
+
+                    if ($itemName -and ($CategoriesList -contains $cat)) {
+                        $localFile = Join-Path $Dest (Join-Path $cat $subPath)
+                        $fullLocal = [System.IO.Path]::GetFullPath($localFile)
+                        $fullDest = [System.IO.Path]::GetFullPath($Dest)
+                        if (-not $fullLocal.StartsWith($fullDest, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+                        $requiresSetup = $false
+                        if (Test-Path $localFile -PathType Leaf) {
+                            try {
+                                $content = Get-Content $localFile -Raw -ErrorAction SilentlyContinue
+                                $requiresSetup = [bool]($content -match 'mcp-servers:|_API_KEY\b|COPILOT_MCP_')
+                            }
+                            catch {}
+                        }
+                        $catItems += [pscustomobject]@{
+                            name          = $itemName
+                            category      = $cat
+                            title         = $title
+                            description   = $desc
+                            url           = $url
+                            requiresSetup = [bool]$requiresSetup
+                        }
+                    }
+                }
+            }
+        }
+        $catalogueData = [pscustomobject]@{
+            version      = 1
+            fetchedAt    = (Get-Date).ToString('o')
+            sourceUrl    = $CatalogueUrl
+            etag         = $etag
+            lastModified = $lastMod
+            count        = $catItems.Count
+            items        = $catItems
+        }
+        $catalogueData | ConvertTo-Json -Depth 5 | Set-Content -Path $CataloguePath -Encoding UTF8
+        Write-Log "Curated catalogue indexed: $($catItems.Count) items from llms.txt." 'SUCCESS'
+    }
+    else {
+        throw "Unexpected HTTP status $($response.StatusCode)"
+    }
+}
+catch {
+    if (Test-Path $CataloguePath) {
+        Write-Log "Could not refresh catalogue ($($CatalogueUrl): $_). Reusing existing local catalogue." 'WARN'
+    }
+    elseif (Test-Path $LlmsCachePath) {
+        Write-Log "Could not refresh catalogue ($($CatalogueUrl): $_). Local llms.txt cache found." 'WARN'
+    }
+    else {
+        Write-Log "Could not fetch or parse $($CatalogueUrl) ($_). Local file scan fallback will be used." 'WARN'
+    }
+}
+#endregion # Curated catalogue fetch
 
 #region Structural change detection — Option 1
 # On subsequent syncs, verify that every previously-synced category folder still
@@ -206,7 +316,7 @@ if (-not $IsFirstRun -and $PrevManifest -and $PrevManifest.categories) {
 #endregion # Clone or pull
 
 #region File scan and change detection
-$NewItems  = @()
+$NewItems = @()
 $Added = 0; $Updated = 0; $Unchanged = 0; $Removed = 0
 $DestResolved = (Resolve-Path $Dest).Path
 
@@ -215,18 +325,18 @@ foreach ($cat in $CategoriesList) {
     if (-not (Test-Path $catDir)) { Write-Log "Category folder not found after sync: $cat" 'WARN'; continue }
 
     $files = Get-ChildItem -Path $catDir -Recurse -File |
-             Where-Object { $_.Name -match '\.(md|markdown|json|sh)$' }
+    Where-Object { $_.Name -match '\.(md|markdown|json|sh)$' }
 
     foreach ($file in $files) {
         Check-Timeout
         $relativePath = $file.FullName.Substring($DestResolved.Length + 1) -replace '\\', '/'
         $hash = Get-Sha256 -FilePath $file.FullName
-        $key  = "$cat|$relativePath"
+        $key = "$cat|$relativePath"
         $prev = $PrevIndex[$key]
 
-        if     ($prev -and $prev.hash -eq $hash) { $Unchanged++ }
-        elseif ($prev)                            { $Updated++;  Write-Log "Updated: $relativePath" }
-        else                                      { $Added++;    Write-Log "Added:   $relativePath" }
+        if ($prev -and $prev.hash -eq $hash) { $Unchanged++ }
+        elseif ($prev) { $Updated++; Write-Log "Updated: $relativePath" }
+        else { $Added++; Write-Log "Added:   $relativePath" }
 
         $NewItems += [pscustomobject]@{
             category    = $cat
@@ -242,6 +352,8 @@ foreach ($cat in $CategoriesList) {
 $NewKeySet = @{}; foreach ($ni in $NewItems) { $NewKeySet["$($ni.category)|$($ni.path)"] = $true }
 if ($PrevManifest -and $PrevManifest.items) {
     foreach ($old in $PrevManifest.items) {
+        # Files belonging to categories no longer in $CategoriesList are intentional exclusions, not upstream removals
+        if ($CategoriesList -notcontains $old.category) { continue }
         if (-not $NewKeySet.ContainsKey("$($old.category)|$($old.path)")) {
             $Removed++
             Write-Log "Removed: $($old.path)"
@@ -254,7 +366,7 @@ if ($PrevManifest -and $PrevManifest.items) {
 # pull (and there were at least 10 files before), treat it as a likely upstream
 # restructure and require explicit confirmation before writing the new manifest.
 if (-not $IsFirstRun -and $PrevManifest -and $PrevManifest.items) {
-    $PrevTotal = @($PrevManifest.items).Count
+    $PrevTotal = @($PrevManifest.items | Where-Object { $CategoriesList -contains $_.category }).Count
     if ($PrevTotal -ge 10 -and $Removed -gt 0) {
         $RemovalRatio = $Removed / $PrevTotal
         if ($RemovalRatio -ge 0.25) {
@@ -277,7 +389,7 @@ $Manifest = [pscustomobject]@{
     fetchedAt  = (Get-Date).ToString('o')
     categories = $CategoriesList
     items      = $NewItems
-    summary    = [pscustomobject]@{ added=$Added; updated=$Updated; removed=$Removed; unchanged=$Unchanged }
+    summary    = [pscustomobject]@{ added = $Added; updated = $Updated; removed = $Removed; unchanged = $Unchanged }
 }
 $Manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $ManifestPath -Encoding UTF8
 
@@ -289,6 +401,7 @@ $Manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $ManifestPath -Encoding 
     "Unchanged:$Unchanged"
     "Total:    $($NewItems.Count)"
     "Manifest: manifest.json"
+    "Catalogue:catalogue.json"
     "Repo:     $RepoSlug"
     "Duration: $([int]((Get-Date)-$script:StartTime).TotalSeconds)s"
 ) | Set-Content -Path $StatusPath -Encoding UTF8
@@ -299,8 +412,8 @@ Write-Log "Summary Added=$Added Updated=$Updated Removed=$Removed Unchanged=$Unc
 
 #region Log retention
 Get-ChildItem $LogDir -Filter 'sync-*.log' |
-    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$LogRetentionDays) } |
-    ForEach-Object { Remove-Item $_.FullName -Force }
+Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$LogRetentionDays) } |
+ForEach-Object { Remove-Item $_.FullName -Force }
 
 #endregion # Log retention
 
