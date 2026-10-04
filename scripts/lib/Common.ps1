@@ -141,7 +141,9 @@ function Get-FrontmatterDescription {
 function Show-OGV {
     <#
     .SYNOPSIS
-    Wrapper around Out-GridView that alerts the user when window opens in the background.
+    [DEPRECATED] Wrapper around Out-GridView for Windows GUI selection.
+    Will be removed in v3.0 during migration to cross-platform Node / NPM CLI.
+    Prefer cross-platform terminal selection via fzf or the numbered console menu.
     #>
     param(
         [Parameter(ValueFromPipeline)][object[]]$InputObject,
@@ -149,7 +151,10 @@ function Show-OGV {
         [string]$SearchKey,
         [switch]$PassThru
     )
-    begin { $all = [System.Collections.Generic.List[object]]::new() }
+    begin {
+        Write-CopilotLog "[DEPRECATION NOTICE] Out-GridView GUI picker is deprecated and will be removed in v3.0 in favour of cross-platform terminal selection." 'WARN'
+        $all = [System.Collections.Generic.List[object]]::new()
+    }
     process { foreach ($i in $InputObject) { $all.Add($i) } }
     end {
         Write-Host "  ► Selection window opening — check your taskbar if it appears behind other apps." -ForegroundColor Yellow

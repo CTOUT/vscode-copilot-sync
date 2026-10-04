@@ -20,6 +20,7 @@ function Get-DefaultCopilotConfig {
         defaultCategories = @('agents', 'instructions', 'skills')
         skipCategories    = @()
         defaultScope      = 'both'
+        picker            = 'console'
         promptsDir        = $null
         skillsDir         = $null
         registries        = @(

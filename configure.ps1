@@ -52,6 +52,9 @@ Usage:
 
   # Display persistent configuration
   .\configure.ps1 -ShowConfig
+
+  # Opt in to Windows Out-GridView GUI picker (deprecated)
+  .\configure.ps1 -Gui
 #>
 [CmdletBinding()] param(
     [switch]$SkipSync,
@@ -68,7 +71,8 @@ Usage:
     [Parameter(Position = 0)]
     [string]$RepoPath = (Get-Location).Path,
     [switch]$DryRun,
-    [switch]$ShowConfig    # Display persistent configuration (~/.awesome-copilot/config.json)
+    [switch]$ShowConfig,    # Display persistent configuration (~/.awesome-copilot/config.json)
+    [switch]$Gui            # [DEPRECATED] Opt in to Windows Out-GridView GUI picker. Default is console.
 )
 
 #region Initialisation
@@ -84,6 +88,9 @@ $appConfig = $null
 if (Test-Path $libConfig) {
     . $libConfig
     $appConfig = Get-CopilotConfig
+    if ($appConfig.picker -eq 'gui' -and -not $PSBoundParameters.ContainsKey('Gui')) {
+        $Gui = $true
+    }
 }
 
 if ($ShowConfig) {
@@ -252,6 +259,7 @@ if (-not $SkipUser) {
         if ($DryRun) { $userArgs['DryRun'] = $true }
         if ($Uninstall) { $userArgs['Uninstall'] = $true }
         if ($Category) { $userArgs['Category'] = $Category }
+        if ($Gui) { $userArgs['Gui'] = $true }
         & (Join-Path $ScriptDir 'init-user.ps1') @userArgs
         if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Log "init-user failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
     }
@@ -264,6 +272,7 @@ if (-not $SkipUser) {
             $userArgs = @{}
             if ($DryRun) { $userArgs['DryRun'] = $true }
             if ($Category) { $userArgs['Category'] = $Category }
+            if ($Gui) { $userArgs['Gui'] = $true }
             & (Join-Path $ScriptDir 'init-user.ps1') @userArgs
             if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Log "init-user failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
         }
@@ -305,6 +314,7 @@ if (-not $SkipInit) {
         if ($RepoPath) { $initArgs['RepoPath'] = $RepoPath }
         if ($doRepoUninstall) { $initArgs['Uninstall'] = $true }
         if ($Category) { $initArgs['Category'] = $Category }
+        if ($Gui) { $initArgs['Gui'] = $true }
         & (Join-Path $ScriptDir 'init-repo.ps1') @initArgs
     }
     else {
@@ -316,6 +326,7 @@ if (-not $SkipInit) {
             if ($DryRun) { $initArgs['DryRun'] = $true }
             if ($RepoPath) { $initArgs['RepoPath'] = $RepoPath }
             if ($Category) { $initArgs['Category'] = $Category }
+            if ($Gui) { $initArgs['Gui'] = $true }
             & (Join-Path $ScriptDir 'init-repo.ps1') @initArgs
         }
         else {

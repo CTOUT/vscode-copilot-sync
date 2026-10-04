@@ -434,7 +434,7 @@ Get-ChildItem .\scripts\logs\sync-*.log | Sort-Object LastWriteTime -Descending 
 [awesome-copilot](https://github.com/github/awesome-copilot) is the community-maintained catalogue of GitHub Copilot resources — agents, hooks, instructions, skills, and workflows contributed by hundreds of developers. vscode-copilot-sync makes it easy to cherry-pick and manage resources from that catalogue.
 
 **Does vscode-copilot-sync work on macOS and Linux?**
-Yes. All scripts run on PowerShell 7+ (`pwsh`), which is available for Windows, macOS, and Linux. The only Windows-specific feature is `Out-GridView`; on other platforms the scripts fall back to a numbered console menu automatically.
+Yes. All scripts run on PowerShell 7+ (`pwsh`) on Windows, macOS, and Linux, and a POSIX wrapper (`run.sh`) is provided for Unix environments. The interactive picker defaults to a cross-platform console selector (`fzf` fuzzy multi-select or numbered console menu) across all platforms. The legacy Windows GUI table picker (`-Gui` / `Out-GridView`) is deprecated and scheduled for removal in v3.0.
 
 **Will it overwrite files I've written myself?**
 No. The scripts only track and manage files they installed, recorded in `.github/.copilot-subscriptions.json`. User-created files are never touched. Locally modified files are flagged with `[~]` and require explicit confirmation before any update.
@@ -462,7 +462,7 @@ Run `.\configure.ps1 -Update` whenever you want to pull upstream additions. This
 
 - **Security Architecture:** Strictly isolates local environments, enforces `$ErrorActionPreference = 'Stop'`, and guards against path traversal with `Assert-PathWithin` across all write and update operations. See [SECURITY.md](SECURITY.md) for vulnerability reporting and containment details.
 - **Terminal Accessibility:** Every status indicator pairs ANSI colour with unambiguous text symbols (`[★]`, `[*]`, `[↑]`, `[~]`, `[U]`, `[!]`), ensuring full legibility on monochrome terminals and for users with protanopia, deuteranopia, or low vision. Contrast adheres to WCAG standards across dark and light terminal themes.
-- **Interactive Navigation:** Terminal fuzzy filtering via `fzf` includes keyboard shortcuts (`TAB` to toggle, `ENTER` to confirm, `ESC` to cancel), and GUI selection via `Out-GridView` provides taskbar notification alerts when backgrounded.
+- **Interactive Navigation:** Cross-platform terminal selection is the default on all platforms. With `fzf` installed, fuzzy filtering includes keyboard shortcuts (`TAB` to toggle, `ENTER` to confirm, `ESC` to cancel); without `fzf`, a numbered console menu provides range selection (`1-3`) and recommendation shortcuts (`rec` / `r`). The legacy `-Gui` switch (`Out-GridView`) is deprecated and scheduled for removal in v3.0.
 
 ---
 

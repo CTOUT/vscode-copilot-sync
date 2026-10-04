@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Console-first default & `-Gui` deprecation**:
+  - `scripts/init-user.ps1`, `scripts/init-repo.ps1`, `configure.ps1`: Defaulted interactive resource selection to cross-platform terminal selection (`fzf` or numbered console menu) across all operating systems including Windows.
+  - Added `-Gui` switch to opt into the Windows `Out-GridView` table picker.
+  - Formally marked `-Gui` and `Show-OGV` as deprecated with console notices and documentation annotations ahead of removal in v3.0 (preparation for standalone cross-platform Node / TypeScript CLI).
+  - `scripts/lib/Config.ps1`: Added `picker = 'console'` to default configuration, supporting personal override to `"picker": "gui"` in `~/.awesome-copilot/config.json`.
+
 ## [v2.4.0] — 2026-10-04
 
 ### Added

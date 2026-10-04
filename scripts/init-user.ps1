@@ -48,13 +48,17 @@ Usage:
   .\init-user.ps1 -Bootstrap
   .\init-user.ps1 -Bootstrap -DryRun   # preview what would be registered
 
+  # Opt in to Windows Out-GridView GUI picker (deprecated)
+  .\init-user.ps1 -Gui
+
 Notes:
   - Files are only overwritten if the source is newer/different.
   - The prompts folder and skills folder are created if they don't exist.
   - A subscription manifest (user-subscriptions.json) is written to the cache
     folder (~/.awesome-copilot/). Run update-user.ps1 to check for upstream changes.
-  - The selection UI uses Out-GridView where available (Windows GUI, filterable,
-    multi-select). Falls back to a numbered console menu automatically.
+  - The selection UI defaults to a cross-platform terminal selector (fzf fuzzy
+    multi-select or numbered console menu). The legacy -Gui switch (Out-GridView)
+    is deprecated and will be removed in v3.0.
   - Only script-managed resources (recorded in user-subscriptions.json) are offered
     for removal — user-created files are never touched.
   - Only general-purpose (tech-agnostic) items are starred ★ in the picker.
@@ -74,7 +78,8 @@ Notes:
     [switch]$DryRun,
     [switch]$Uninstall,  # Show a picker of installed items to remove instead of installing
     [switch]$Bootstrap,  # Register all already-installed cache-origin files; no pickers, no file copies
-    [string]$Category = ''  # Comma-separated categories to process; all others skipped (e.g. 'agents,skills')
+    [string]$Category = '', # Comma-separated categories to process; all others skipped (e.g. 'agents,skills')
+    [switch]$Gui            # [DEPRECATED] Opt in to Windows Out-GridView GUI picker. Default is console.
 )
 
 #region Initialisation
@@ -82,6 +87,15 @@ $ErrorActionPreference = 'Stop'
 
 $CommonLib = Join-Path $PSScriptRoot 'lib\Common.ps1'
 if (Test-Path $CommonLib) { . $CommonLib }
+
+$ConfigLib = Join-Path $PSScriptRoot 'lib\Config.ps1'
+if (Test-Path $ConfigLib) {
+    . $ConfigLib
+    $cfg = Get-CopilotConfig -SourceRoot $SourceRoot
+    if ($cfg.picker -eq 'gui' -and -not $PSBoundParameters.ContainsKey('Gui')) {
+        $Gui = $true
+    }
+}
 
 if (-not $PromptsDir) { $PromptsDir = Resolve-PromptsDirectory }
 if (-not $SkillsDir)  { $SkillsDir  = Resolve-SkillsDirectory }
@@ -528,30 +542,41 @@ function Select-UserItems {
     Write-Host "  === User-level $Category (available in all repos) ===" -ForegroundColor Yellow
     Write-Host "  ★=Recommended (general-purpose)  [*]=Installed  [↑]=Update available  [~]=Locally modified  [!]=Setup required" -ForegroundColor Gray
 
-    $ogvAvailable = $false
-    try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
+    # GUI selection via Out-GridView (Windows-only, deprecated)
+    if ($Gui) {
+        if ($IsLinux -or $IsMacOS) {
+            Write-Host "  [DEPRECATION NOTICE] -Gui (Out-GridView) is Windows-only and will be removed in v3.0. Falling back to console picker." -ForegroundColor Yellow
+        }
+        else {
+            $ogvAvailable = $false
+            try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
+            if ($ogvAvailable) {
+                Write-Host "  [DEPRECATION NOTICE] -Gui and Out-GridView are deprecated and will be removed in v3.0 for cross-platform Node/NPM parity." -ForegroundColor Yellow
+                $none = [pscustomobject]@{ Rec = ''; Status = ''; Title = '-- none / skip --'; Name = '-- none / skip --'; Description = 'Select this (or nothing) to install nothing' }
+                $display = @($none) + @($Items | Select-Object `
+                    @{ N = 'Rec'; E = { if ($_.IsRecommended) { '★' } else { '' } } },
+                    @{ N = 'Status'; E = {
+                            $s = ''
+                            if ($_.AlreadyInstalled) { $s += '[*]' }
+                            if ($_.UpdateAvailable) { $s += '[↑]' }
+                            if ($_.LocallyModified) { $s += '[~]' }
+                            if ($_.RequiresSetup) { $s += '[!]' }
+                            $s
+                        }
+                    },
+                    @{ N = 'Title'; E = { if ($_.Title) { $_.Title } else { $_.Name } } },
+                    @{ N = 'Name'; E = { $_.Name } },
+                    @{ N = 'Description'; E = { $_.Description } })
 
-    if ($ogvAvailable) {
-        $none = [pscustomobject]@{ Rec = ''; Status = ''; Title = '-- none / skip --'; Name = '-- none / skip --'; Description = 'Select this (or nothing) to install nothing' }
-        $display = @($none) + @($Items | Select-Object `
-            @{ N = 'Rec'; E = { if ($_.IsRecommended) { '★' } else { '' } } },
-            @{ N = 'Status'; E = {
-                    $s = ''
-                    if ($_.AlreadyInstalled) { $s += '[*]' }
-                    if ($_.UpdateAvailable) { $s += '[↑]' }
-                    if ($_.LocallyModified) { $s += '[~]' }
-                    if ($_.RequiresSetup) { $s += '[!]' }
-                    $s
-                }
-            },
-            @{ N = 'Title'; E = { if ($_.Title) { $_.Title } else { $_.Name } } },
-            @{ N = 'Name'; E = { $_.Name } },
-            @{ N = 'Description'; E = { $_.Description } })
-
-        $picked = $display | Show-OGV -Title "User-level $Category — available in ALL repos  ★=General-purpose  [*]=Installed  [↑]=Update  [~]=Modified  [!]=Setup required" -SearchKey "Select user $Category" -PassThru
-        if (-not $picked) { return @() }
-        $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
-        return @($Items | Where-Object { $pickedNames -contains $_.Name })
+                $picked = $display | Show-OGV -Title "User-level $Category — available in ALL repos  ★=General-purpose  [*]=Installed  [↑]=Update  [~]=Modified  [!]=Setup required" -SearchKey "Select user $Category" -PassThru
+                if (-not $picked) { return @() }
+                $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
+                return @($Items | Where-Object { $pickedNames -contains $_.Name })
+            }
+            else {
+                Write-Host "  Out-GridView not available in this PowerShell environment. Falling back to console picker." -ForegroundColor Yellow
+            }
+        }
     }
 
     # Try fzf terminal fuzzy multi-select if available
@@ -612,20 +637,31 @@ function Select-UserToRemove {
         return @()
     }
 
-    $ogvAvailable = $false
-    try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
-
-    if ($ogvAvailable) {
-        $none = [pscustomobject]@{ Modified = ''; Title = '-- none / skip --'; Name = '-- none / skip --'; Description = 'Select this (or nothing) to remove nothing' }
-        $display = @($none) + @($removable | Select-Object `
-            @{ N = 'Modified'; E = { if ($_.LocallyModified) { '[~] MODIFIED' } else { '' } } },
-            @{ N = 'Title'; E = { if ($_.Title) { $_.Title } else { $_.Name } } },
-            @{ N = 'Name'; E = { $_.Name } },
-            @{ N = 'Description'; E = { $_.Description } })
-        $picked = $display | Show-OGV -Title "Remove user-level $Category   [~]=Locally modified (removal is permanent)" -SearchKey "Remove user $Category" -PassThru
-        if (-not $picked) { return @() }
-        $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
-        return @($removable | Where-Object { $pickedNames -contains $_.Name })
+    # GUI selection via Out-GridView (Windows-only, deprecated)
+    if ($Gui) {
+        if ($IsLinux -or $IsMacOS) {
+            Write-Host "  [DEPRECATION NOTICE] -Gui (Out-GridView) is Windows-only and will be removed in v3.0. Falling back to console picker." -ForegroundColor Yellow
+        }
+        else {
+            $ogvAvailable = $false
+            try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
+            if ($ogvAvailable) {
+                Write-Host "  [DEPRECATION NOTICE] -Gui and Out-GridView are deprecated and will be removed in v3.0 for cross-platform Node/NPM parity." -ForegroundColor Yellow
+                $none = [pscustomobject]@{ Modified = ''; Title = '-- none / skip --'; Name = '-- none / skip --'; Description = 'Select this (or nothing) to remove nothing' }
+                $display = @($none) + @($removable | Select-Object `
+                    @{ N = 'Modified'; E = { if ($_.LocallyModified) { '[~] MODIFIED' } else { '' } } },
+                    @{ N = 'Title'; E = { if ($_.Title) { $_.Title } else { $_.Name } } },
+                    @{ N = 'Name'; E = { $_.Name } },
+                    @{ N = 'Description'; E = { $_.Description } })
+                $picked = $display | Show-OGV -Title "Remove user-level $Category   [~]=Locally modified (removal is permanent)" -SearchKey "Remove user $Category" -PassThru
+                if (-not $picked) { return @() }
+                $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
+                return @($removable | Where-Object { $pickedNames -contains $_.Name })
+            }
+            else {
+                Write-Host "  Out-GridView not available in this PowerShell environment. Falling back to console picker." -ForegroundColor Yellow
+            }
+        }
     }
 
     # Try fzf terminal fuzzy multi-select if available
