@@ -193,8 +193,28 @@ function Show-FzfPicker {
             $lines.Add("$($item.Name)`t$rec`t$status`t$titleStr`t$descStr")
         }
 
-        $headerText = "$Title (TAB: toggle | ENTER: confirm | ESC: cancel)"
-        $selected = ($lines -join "`n") | fzf -m --delimiter="`t" --with-nth=2,3,4,5 --layout=reverse --height=80% --border --info=inline --cycle --header="$headerText"
+        $headerLines = @(
+            "=== $Title ===",
+            "  Navigation:  [Up/Down] Move cursor    [PgUp/PgDn] Page scroll    Wrap-around enabled",
+            "  Selection:   [TAB] Toggle item (*)    [Ctrl+A] Select all        [Ctrl+D] Deselect all",
+            "  Action:      [ENTER] Confirm & apply  [ESC] Cancel / skip        Type to fuzzy search"
+        )
+        $headerText = $headerLines -join "`n"
+
+        $selected = ($lines -join "`n") | fzf -m `
+            --delimiter="`t" `
+            --with-nth=2,3,4,5 `
+            --layout=reverse `
+            --height=80% `
+            --border `
+            --header-first `
+            --info=inline `
+            --cycle `
+            --prompt="Search: " `
+            --pointer="> " `
+            --marker="* " `
+            --bind="ctrl-a:select-all,ctrl-d:deselect-all" `
+            --header="$headerText"
         if ($LASTEXITCODE -gt 1 -and $LASTEXITCODE -ne 130) {
             return $null
         }
@@ -319,7 +339,10 @@ function Show-ConsoleMenu {
         }
 
         Write-Host "  ─────────────────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
-        Write-Host "  Controls: 1,3 or 1-5 (toggle) | [n]ext | [p]rev | /search | rec | all | done" -ForegroundColor Gray
+        Write-Host "  Navigation:  [n]ext / [p]rev page (or press Enter on last page) | Wrap-around enabled" -ForegroundColor Gray
+        Write-Host "  Selection:   1,3 or 1-5 (toggle) | rec / r (recommended) | all / a | none / c (clear)" -ForegroundColor Gray
+        Write-Host "  Search:      /term or f term (filter catalogue) | /clear (reset filter)" -ForegroundColor Gray
+        Write-Host "  Action:      'done' or 'q' to confirm and proceed (or append to numbers: 1,3 done)" -ForegroundColor Gray
 
         $navHint = if ($currentPage -lt $totalPages) { "Enter for next page, 'done' to finish" } else { "'done' or Enter to finish" }
         Write-Host ("  Action ({0}): " -f $navHint) -NoNewline -ForegroundColor $headerColor
