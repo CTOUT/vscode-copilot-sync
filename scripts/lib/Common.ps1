@@ -197,7 +197,8 @@ function Show-FzfPicker {
             "=== $Title ===",
             "  Navigation:  [Up/Down] Move cursor    [PgUp/PgDn] Page scroll    Wrap-around enabled",
             "  Selection:   [TAB] Toggle item (*)    [Ctrl+A] Select all        [Ctrl+D] Deselect all",
-            "  Action:      [ENTER] Confirm & apply  [ESC] Cancel / skip        Type to fuzzy search"
+            "  Shortcuts:   [Ctrl+R] Show recommended (★)                      Type to fuzzy search",
+            "  Action:      [ENTER] Confirm & apply  [ESC] Cancel / skip"
         )
         $headerText = $headerLines -join "`n"
 
@@ -213,7 +214,7 @@ function Show-FzfPicker {
             --prompt="Search: " `
             --pointer="> " `
             --marker="* " `
-            --bind="ctrl-a:select-all,ctrl-d:deselect-all" `
+            --bind="ctrl-a:select-all,ctrl-d:deselect-all,ctrl-r:change-query(★)" `
             --header="$headerText"
         if ($LASTEXITCODE -gt 1 -and $LASTEXITCODE -ne 130) {
             return $null
