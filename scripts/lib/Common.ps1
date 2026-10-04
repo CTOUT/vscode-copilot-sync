@@ -166,11 +166,11 @@ function Show-OGV {
 function Show-FzfPicker {
     <#
     .SYNOPSIS
-    Terminal fuzzy multi-select picker using fzf with keyboard navigation header.
+    Terminal fuzzy multi-select picker using fzf with top-down layout and keyboard navigation header.
     #>
     param(
-        [string]$Title,
-        [object[]]$Items
+        [Parameter(Mandatory = $true)][string]$Title,
+        [Parameter(Mandatory = $true)][object[]]$Items
     )
     $hasFzf = Get-Command fzf -ErrorAction SilentlyContinue
     if (-not $hasFzf) { return $null }
@@ -179,20 +179,31 @@ function Show-FzfPicker {
         $lines = [System.Collections.Generic.List[string]]::new()
         foreach ($item in $Items) {
             $rec = if ($item.IsRecommended) { '★' } else { ' ' }
-            $status = if ($item.AlreadyInstalled) { '[*]' } elseif ($item.RequiresSetup) { '[!]' } else { '   ' }
-            $titleStr = if ($item.Title) { $item.Title } else { $item.Name }
+            $status = ''
+            if ($item.AlreadyInstalled) { $status += '[*]' }
+            if ($item.UpdateAvailable) { $status += '[↑]' }
+            if ($item.LocallyModified) { $status += '[~]' }
+            if ($item.UserInstalled) { $status += '[U]' }
+            if ($item.RequiresSetup) { $status += '[!]' }
+            if (-not $status) { $status = '   ' }
+
+            $titleStr = if ($item.Title -and $item.Title -ne $item.Name) { "$($item.Name) ($($item.Title))" } else { $item.Name }
             $descStr = if ($item.Description) { $item.Description } else { '' }
-            $lines.Add("$rec`t$status`t$($item.Name)`t$titleStr`t$descStr")
+            # Tab-delimited: 1=Name (hidden ID), 2=Rec, 3=Status, 4=DisplayName, 5=Description
+            $lines.Add("$($item.Name)`t$rec`t$status`t$titleStr`t$descStr")
         }
 
-        $headerText = "$Title (TAB: toggle selection | ENTER: confirm | ESC: cancel)"
-        $selected = ($lines -join "`n") | fzf -m --delimiter="`t" --with-nth=1,2,3,4,5 --header="$headerText"
-        if (-not $selected) { return @() }
-        $pickedNames = [System.Collections.Generic.List[string]]::new()
+        $headerText = "$Title (TAB: toggle | ENTER: confirm | ESC: cancel)"
+        $selected = ($lines -join "`n") | fzf -m --delimiter="`t" --with-nth=2,3,4,5 --layout=reverse --height=80% --border --info=inline --cycle --header="$headerText"
+        if ($LASTEXITCODE -gt 1 -and $LASTEXITCODE -ne 130) {
+            return $null
+        }
+        if (-not $selected -or $selected.Trim() -eq '') { return @() }
+        $pickedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
         foreach ($line in ($selected -split "`n")) {
             $parts = $line -split "`t"
-            if ($parts.Count -ge 3 -and $parts[2].Trim()) {
-                $pickedNames.Add($parts[2].Trim())
+            if ($parts.Count -ge 1 -and $parts[0].Trim()) {
+                [void]$pickedNames.Add($parts[0].Trim())
             }
         }
         return @($Items | Where-Object { $pickedNames.Contains($_.Name) })
@@ -200,6 +211,310 @@ function Show-FzfPicker {
     catch {
         return $null
     }
+}
+
+function Show-ConsoleMenu {
+    <#
+    .SYNOPSIS
+    Paginated, interactive terminal menu with inline search, range selection, and persistent accumulation.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Title,
+        [Parameter(Mandatory = $true)][object[]]$Items,
+        [int]$PageSize = 15,
+        [switch]$IsRemoval
+    )
+
+    if ($Items.Count -eq 0) { return @() }
+
+    # Detect sensible page size based on terminal height if available
+    try {
+        $rawHeight = $host.UI.RawUI.WindowSize.Height
+        if ($rawHeight -gt 0) {
+            $avail = [int][Math]::Floor(($rawHeight - 10) / 2)
+            if ($avail -ge 5 -and $avail -le 25) { $PageSize = $avail }
+        }
+    }
+    catch {}
+
+    $selectedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $currentPage = 1
+    $filter = ''
+
+    while ($true) {
+        $filtered = if ($filter) {
+            @($Items | Where-Object {
+                $_.Name -like "*$filter*" -or
+                ($_.Title -and $_.Title -like "*$filter*") -or
+                ($_.Description -and $_.Description -like "*$filter*")
+            })
+        }
+        else {
+            $Items
+        }
+
+        $totalItems = $filtered.Count
+        $totalPages = [Math]::Max(1, [int][Math]::Ceiling($totalItems / $PageSize))
+        if ($currentPage -gt $totalPages) { $currentPage = $totalPages }
+        if ($currentPage -lt 1) { $currentPage = 1 }
+
+        $startIndex = ($currentPage - 1) * $PageSize
+        $endIndex = [Math]::Min($startIndex + $PageSize - 1, [Math]::Max(0, $totalItems - 1))
+
+        Write-Host ""
+        $headerColor = if ($IsRemoval) { 'Red' } else { 'Yellow' }
+        Write-Host ("  === {0} (Page {1} of {2} — Items {3} to {4} of {5}) ===" -f $Title, $currentPage, $totalPages, ($startIndex + 1), ($endIndex + 1), $totalItems) -ForegroundColor $headerColor
+
+        if ($filter) {
+            Write-Host ("  [Filter active: '{0}' ({1} matching) — type '/clear' or 'f' to reset]" -f $filter, $totalItems) -ForegroundColor Cyan
+        }
+
+        if ($selectedNames.Count -gt 0) {
+            $previewList = @($selectedNames | Select-Object -First 5) -join ', '
+            if ($selectedNames.Count -gt 5) { $previewList += " (+$($selectedNames.Count - 5) more)" }
+            Write-Host ("  [✓ Selected ({0}): {1}]" -f $selectedNames.Count, $previewList) -ForegroundColor Green
+        }
+        else {
+            Write-Host "  [Selected: none]" -ForegroundColor Gray
+        }
+
+        if ($IsRemoval) {
+            Write-Host "  [~]=Locally modified (removal is permanent)" -ForegroundColor Gray
+        }
+        else {
+            Write-Host "  ★=Recommended  [*]=Installed  [↑]=Update available  [~]=Locally modified  [!]=Setup required" -ForegroundColor Gray
+        }
+        Write-Host "  ─────────────────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+
+        if ($totalItems -eq 0) {
+            Write-Host "  No items match the current filter." -ForegroundColor Yellow
+        }
+        else {
+            for ($i = $startIndex; $i -le $endIndex; $i++) {
+                $item = $filtered[$i]
+                $itemNum = $i + 1
+                $isChecked = if ($selectedNames.Contains($item.Name)) { '[x]' } else { '[ ]' }
+                $rec = if ($item.IsRecommended) { '★' } elseif ($item.RequiresSetup) { '!' } else { ' ' }
+                $status = ''
+                if ($item.AlreadyInstalled) { $status += '[*]' }
+                if ($item.UpdateAvailable) { $status += '[↑]' }
+                if ($item.LocallyModified) { $status += '[~]' }
+                if ($item.UserInstalled) { $status += '[U]' }
+
+                $color = if ($isChecked -eq '[x]') { 'Green' }
+                    elseif ($IsRemoval -and $item.LocallyModified) { 'Yellow' }
+                    elseif ($IsRemoval) { 'White' }
+                    elseif ($item.UpdateAvailable) { 'Cyan' }
+                    elseif ($item.AlreadyInstalled) { 'Gray' }
+                    elseif ($item.IsRecommended) { 'Yellow' }
+                    elseif ($item.RequiresSetup) { 'Yellow' }
+                    else { 'White' }
+
+                $dispName = if ($item.Title -and $item.Title -ne $item.Name) { "$($item.Name) ($($item.Title))" } else { $item.Name }
+                Write-Host ("  {0,3}. {1} [{2}] {3,-6} {4}" -f $itemNum, $isChecked, $rec, $status, $dispName) -ForegroundColor $color
+                if ($item.Description) {
+                    Write-Host ("               {0}" -f $item.Description) -ForegroundColor Gray
+                }
+            }
+        }
+
+        Write-Host "  ─────────────────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+        Write-Host "  Controls: 1,3 or 1-5 (toggle) | [n]ext | [p]rev | /search | rec | all | done" -ForegroundColor Gray
+
+        $navHint = if ($currentPage -lt $totalPages) { "Enter for next page, 'done' to finish" } else { "'done' or Enter to finish" }
+        Write-Host ("  Action ({0}): " -f $navHint) -NoNewline -ForegroundColor $headerColor
+        $raw = Read-Host
+
+        if ($null -eq $raw) { break }
+        $trimmed = $raw.Trim()
+
+        if ($trimmed -in 'done', 'q', 'exit') {
+            break
+        }
+
+        if ($trimmed -eq '') {
+            if ($currentPage -lt $totalPages) {
+                $currentPage++
+            }
+            else {
+                break
+            }
+            continue
+        }
+
+        if ($trimmed -in 'n', 'next') {
+            if ($currentPage -lt $totalPages) { $currentPage++ }
+            else { Write-Host "  Already on last page." -ForegroundColor Yellow }
+            continue
+        }
+        if ($trimmed -in 'p', 'prev', 'previous') {
+            if ($currentPage -gt 1) { $currentPage-- }
+            else { Write-Host "  Already on first page." -ForegroundColor Yellow }
+            continue
+        }
+        if ($trimmed -match '^page\s+(\d+)$') {
+            $p = [int]$Matches[1]
+            if ($p -ge 1 -and $p -le $totalPages) { $currentPage = $p }
+            else { Write-Host "  Invalid page number (1-$totalPages)." -ForegroundColor Yellow }
+            continue
+        }
+
+        if ($trimmed -match '^/(.*)$') {
+            $filter = $Matches[1].Trim()
+            $currentPage = 1
+            continue
+        }
+        if ($trimmed -match '^f\s+(.*)$') {
+            $filter = $Matches[1].Trim()
+            $currentPage = 1
+            continue
+        }
+        if ($trimmed -in 'f', '/clear', 'clear-filter', 'reset') {
+            $filter = ''
+            $currentPage = 1
+            continue
+        }
+
+        if ($trimmed -in 'rec', 'recommended', 'r') {
+            $recItems = @($Items | Where-Object { $_.IsRecommended })
+            if ($recItems.Count -eq 0) {
+                Write-Host "  No items marked as recommended (★)." -ForegroundColor Yellow
+            }
+            else {
+                foreach ($r in $recItems) { [void]$selectedNames.Add($r.Name) }
+                Write-Host ("  Added {0} recommended items to selection." -f $recItems.Count) -ForegroundColor Green
+            }
+            if ($totalPages -eq 1) { break }
+            continue
+        }
+        if ($trimmed -in 'all', 'a') {
+            foreach ($it in $filtered) { [void]$selectedNames.Add($it.Name) }
+            Write-Host ("  Added {0} items to selection." -f $filtered.Count) -ForegroundColor Green
+            if ($totalPages -eq 1) { break }
+            continue
+        }
+        if ($trimmed -in 'none', 'clear', 'c') {
+            $selectedNames.Clear()
+            Write-Host "  Cleared all selections." -ForegroundColor Gray
+            continue
+        }
+
+        $finishAfterToggle = $false
+        if ($trimmed -match '\b(done|q)\b') {
+            $finishAfterToggle = $true
+            $trimmed = $trimmed -replace '\b(done|q)\b', ''
+        }
+
+        $numTokens = $trimmed.Split(',', [System.StringSplitOptions]::RemoveEmptyEntries)
+        $validNumbers = $false
+        foreach ($tok in $numTokens) {
+            $t = $tok.Trim()
+            if ($t -match '^(\d+)-(\d+)$') {
+                $start = [int]$Matches[1]
+                $end = [int]$Matches[2]
+                for ($k = $start; $k -le $end; $k++) {
+                    if ($k -ge 1 -and $k -le $filtered.Count) {
+                        $target = $filtered[$k - 1]
+                        if ($selectedNames.Contains($target.Name)) { [void]$selectedNames.Remove($target.Name) }
+                        else { [void]$selectedNames.Add($target.Name) }
+                        $validNumbers = $true
+                    }
+                }
+            }
+            elseif ($t -match '^\d+$') {
+                $k = [int]$t
+                if ($k -ge 1 -and $k -le $filtered.Count) {
+                    $target = $filtered[$k - 1]
+                    if ($selectedNames.Contains($target.Name)) { [void]$selectedNames.Remove($target.Name) }
+                    else { [void]$selectedNames.Add($target.Name) }
+                    $validNumbers = $true
+                }
+                else {
+                    Write-Host ("  Number {0} out of range (1-{1})." -f $k, $filtered.Count) -ForegroundColor Yellow
+                }
+            }
+        }
+
+        if ($validNumbers -and ($finishAfterToggle -or $totalPages -eq 1)) {
+            break
+        }
+    }
+
+    return @($Items | Where-Object { $selectedNames.Contains($_.Name) })
+}
+
+function Show-ItemPicker {
+    <#
+    .SYNOPSIS
+    Universal interactive resource picker. Dispatches to:
+    1. Show-OGV (if -Gui switch is passed on Windows)
+    2. Show-FzfPicker (if fzf is installed on PATH)
+    3. Show-ConsoleMenu (paginated, searchable terminal menu fallback)
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Title,
+        [Parameter(Mandatory = $true)][object[]]$Items,
+        [switch]$Gui,
+        [switch]$IsRemoval,
+        [int]$PageSize = 15
+    )
+
+    if ($Items.Count -eq 0) { return @() }
+
+    # 1. GUI selection via Out-GridView (Windows-only, deprecated)
+    if ($Gui) {
+        if ($IsLinux -or $IsMacOS) {
+            Write-Host "  [DEPRECATION NOTICE] -Gui (Out-GridView) is Windows-only and will be removed in v3.0. Falling back to console picker." -ForegroundColor Yellow
+        }
+        else {
+            $ogvAvailable = $false
+            try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
+            if ($ogvAvailable) {
+                Write-Host "  [DEPRECATION NOTICE] -Gui and Out-GridView are deprecated and will be removed in v3.0 for cross-platform Node/NPM parity." -ForegroundColor Yellow
+                if ($IsRemoval) {
+                    $none = [pscustomobject]@{ Modified = ''; Title = '-- none / skip --'; Name = '-- none / skip --'; Description = 'Select this (or nothing) to remove nothing' }
+                    $display = @($none) + @($Items | Select-Object `
+                        @{ N = 'Modified'; E = { if ($_.LocallyModified) { '[~] MODIFIED' } else { '' } } },
+                        @{ N = 'Title'; E = { if ($_.Title) { $_.Title } else { $_.Name } } },
+                        @{ N = 'Name'; E = { $_.Name } },
+                        @{ N = 'Description'; E = { $_.Description } })
+                }
+                else {
+                    $none = [pscustomobject]@{ Rec = ''; Status = ''; Title = '-- none / skip --'; Name = '-- none / skip --'; Description = 'Select this (or nothing) to install nothing' }
+                    $display = @($none) + @($Items | Select-Object `
+                        @{ N = 'Rec'; E = { if ($_.IsRecommended) { '★' } else { '' } } },
+                        @{ N = 'Status'; E = {
+                                $s = ''
+                                if ($_.AlreadyInstalled) { $s += '[*]' }
+                                if ($_.UpdateAvailable) { $s += '[↑]' }
+                                if ($_.LocallyModified) { $s += '[~]' }
+                                if ($_.UserInstalled) { $s += '[U]' }
+                                if ($_.RequiresSetup) { $s += '[!]' }
+                                $s
+                            }
+                        },
+                        @{ N = 'Title'; E = { if ($_.Title) { $_.Title } else { $_.Name } } },
+                        @{ N = 'Name'; E = { $_.Name } },
+                        @{ N = 'Description'; E = { $_.Description } })
+                }
+
+                $picked = $display | Show-OGV -Title $Title -SearchKey $Title -PassThru
+                if (-not $picked) { return @() }
+                $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
+                return @($Items | Where-Object { $pickedNames -contains $_.Name })
+            }
+            else {
+                Write-Host "  Out-GridView not available in this PowerShell environment. Falling back to console picker." -ForegroundColor Yellow
+            }
+        }
+    }
+
+    # 2. Try fzf terminal fuzzy multi-select if available
+    $fzfPicked = Show-FzfPicker -Title $Title -Items $Items
+    if ($null -ne $fzfPicked) { return $fzfPicked }
+
+    # 3. Fallback: Paginated, searchable interactive console menu
+    return (Show-ConsoleMenu -Title $Title -Items $Items -PageSize $PageSize -IsRemoval:$IsRemoval)
 }
 
 function Get-Description {

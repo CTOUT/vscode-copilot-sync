@@ -4,6 +4,10 @@
 
 ### Changed
 
+- **Paginated console menu & top-down interactive selection**:
+  - `scripts/lib/Common.ps1`: Implemented `Show-ConsoleMenu` featuring interactive pagination (15 items per page), keyword filtering (`/keyword` or `f keyword`), page navigation (`[n]ext` / `[p]rev`), range selection (`1-3`), bulk recommendation shortcuts (`rec` / `r`), and persistent accumulation across pages.
+  - `scripts/lib/Common.ps1`: Configured `Show-FzfPicker` with `--layout=reverse`, `--height=80%`, `--border`, `--info=inline`, and `--cycle`, ensuring natural top-down reading order with recommended items at the top.
+  - `scripts/lib/Common.ps1`: Added `Show-ItemPicker` as a unified DRY dispatcher consolidating `Show-OGV`, `Show-FzfPicker`, and `Show-ConsoleMenu`, eliminating over 300 lines of duplicate menu code across `scripts/init-user.ps1` and `scripts/init-repo.ps1`.
 - **Console-first default & `-Gui` deprecation**:
   - `scripts/init-user.ps1`, `scripts/init-repo.ps1`, `configure.ps1`: Defaulted interactive resource selection to cross-platform terminal selection (`fzf` or numbered console menu) across all operating systems including Windows.
   - Added `-Gui` switch to opt into the Windows `Out-GridView` table picker.

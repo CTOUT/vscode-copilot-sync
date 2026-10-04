@@ -340,95 +340,8 @@ function Select-Items {
         Add-Member -NotePropertyName 'Score'         -NotePropertyValue $score  -PassThru -Force
     } | Sort-Object @{ E = { if ($_.IsRecommended) { 0 } else { 1 } } }, @{ E = { if ($_.AlreadyInstalled) { 0 } else { 1 } } }, Name
 
-    Write-Host ""
-    Write-Host "  === $Category ===" -ForegroundColor Yellow
-    Write-Host "  [*]=Installed  [↑]=Update available  [~]=Locally modified  [U]=User-level  ★=Recommended  [!]=Setup required" -ForegroundColor Gray
-
-    # GUI selection via Out-GridView (Windows-only, deprecated)
-    if ($Gui) {
-        if ($IsLinux -or $IsMacOS) {
-            Write-Host "  [DEPRECATION NOTICE] -Gui (Out-GridView) is Windows-only and will be removed in v3.0. Falling back to console picker." -ForegroundColor Yellow
-        }
-        else {
-            $ogvAvailable = $false
-            try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
-            if ($ogvAvailable) {
-                Write-Host "  [DEPRECATION NOTICE] -Gui and Out-GridView are deprecated and will be removed in v3.0 for cross-platform Node/NPM parity." -ForegroundColor Yellow
-                $none = [pscustomobject]@{ Rec = ''; Status = ''; Title = '-- none / skip --'; Name = '-- none / skip --'; Description = 'Select this (or nothing) to install nothing' }
-                $display = @($none) + @($Items | Select-Object `
-                    @{ N = 'Rec'; E = { if ($_.IsRecommended) { '★' } else { '' } } },
-                    @{ N = 'Status'; E = {
-                            $s = ''
-                            if ($_.AlreadyInstalled) { $s += '[*]' }
-                            if ($_.UpdateAvailable) { $s += '[↑]' }
-                            if ($_.LocallyModified) { $s += '[~]' }
-                            if ($_.UserInstalled) { $s += '[U]' }
-                            if ($_.RequiresSetup) { $s += '[!]' }
-                            $s
-                        }
-                    },
-                    @{ N = 'Title'; E = { if ($_.Title) { $_.Title } else { $_.Name } } },
-                    @{ N = 'Name'; E = { $_.Name } },
-                    @{ N = 'Description'; E = { $_.Description } })
-
-                $picked = $display | Show-OGV -Title "Select $Category   ★=Recommended  [*]=Installed  [↑]=Update  [~]=Modified  [U]=User-level  [!]=Setup required" -SearchKey "Select $Category" -PassThru
-                if (-not $picked) { return @() }
-                $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
-                return @($Items | Where-Object { $pickedNames -contains $_.Name })
-            }
-            else {
-                Write-Host "  Out-GridView not available in this PowerShell environment. Falling back to console picker." -ForegroundColor Yellow
-            }
-        }
-    }
-
-    # Try fzf terminal fuzzy multi-select if available
-    $fzfPicked = Show-FzfPicker -Title "Select $Category" -Items $Items
-    if ($null -ne $fzfPicked) { return $fzfPicked }
-
-    # Fallback: numbered console menu
-    Write-Host ""
-    for ($i = 0; $i -lt $Items.Count; $i++) {
-        $item = $Items[$i]
-        $status = ''
-        if ($item.AlreadyInstalled) { $status += '[*]' }
-        if ($item.UpdateAvailable) { $status += '[↑]' }
-        if ($item.LocallyModified) { $status += '[~]' }
-        if ($item.UserInstalled) { $status += '[U]' }
-        $rec = if ($item.IsRecommended) { '[★]' } elseif ($item.RequiresSetup) { '[!]' } else { '   ' }
-        $color = if ($item.UpdateAvailable) { 'Cyan' } elseif ($item.AlreadyInstalled) { 'Gray' } elseif ($item.UserInstalled) { 'Magenta' } elseif ($item.IsRecommended) { 'Yellow' } elseif ($item.RequiresSetup) { 'Yellow' } else { 'White' }
-        $titleStr = if ($item.Title -and $item.Title -ne $item.Name) { "$($item.Title) ($($item.Name))" } else { $item.Name }
-        Write-Host ("  {0,3}. {1} {2,-6} {3}" -f ($i + 1), $rec, $status, $titleStr) -ForegroundColor $color
-        if ($item.Description) {
-            Write-Host ("             {0}" -f $item.Description) -ForegroundColor Gray
-        }
-    }
-    Write-Host ""
-    Write-Host "  Enter numbers to install (e.g. 1,3,5 or 1-3, 'rec' for recommended, 'all', or blank to skip): " -NoNewline -ForegroundColor Yellow
-    $rawInput = Read-Host
-
-    if (-not $rawInput -or $rawInput.Trim() -eq '') { return @() }
-    if ($rawInput.Trim() -eq 'all') { return $Items }
-    if ($rawInput.Trim() -in 'rec', 'recommended', 'r') {
-        $recItems = @($Items | Where-Object { $_.IsRecommended })
-        if ($recItems.Count -eq 0) {
-            Write-Host "  No items marked as recommended (★)." -ForegroundColor Yellow
-            return @()
-        }
-        return $recItems
-    }
-
-    $indices = @()
-    foreach ($part in $rawInput.Split(',')) {
-        $part = $part.Trim()
-        if ($part -match '^(\d+)-(\d+)$') {
-            $indices += ([int]$Matches[1])..[int]$Matches[2]
-        }
-        elseif ($part -match '^\d+$') {
-            $indices += [int]$part
-        }
-    }
-    return @($Items | Where-Object { $indices -contains ([Array]::IndexOf($Items, $_) + 1) })
+    $title = "Select $Category"
+    return @(Show-ItemPicker -Title $title -Items $Items -Gui:$Gui)
 }
 
 function Select-ToRemove {
@@ -450,65 +363,8 @@ function Select-ToRemove {
         return @()
     }
 
-    # GUI selection via Out-GridView (Windows-only, deprecated)
-    if ($Gui) {
-        if ($IsLinux -or $IsMacOS) {
-            Write-Host "  [DEPRECATION NOTICE] -Gui (Out-GridView) is Windows-only and will be removed in v3.0. Falling back to console picker." -ForegroundColor Yellow
-        }
-        else {
-            $ogvAvailable = $false
-            try { Get-Command Out-GridView -ErrorAction Stop | Out-Null; $ogvAvailable = $true } catch {}
-            if ($ogvAvailable) {
-                Write-Host "  [DEPRECATION NOTICE] -Gui and Out-GridView are deprecated and will be removed in v3.0 for cross-platform Node/NPM parity." -ForegroundColor Yellow
-                $none = [pscustomobject]@{ Modified = ''; Title = '-- none / skip --'; Name = '-- none / skip --'; Description = 'Select this (or nothing) to remove nothing' }
-                $display = @($none) + @($removable | Select-Object `
-                    @{ N = 'Modified'; E = { if ($_.LocallyModified) { '[~] MODIFIED' } else { '' } } },
-                    @{ N = 'Title'; E = { if ($_.Title) { $_.Title } else { $_.Name } } },
-                    @{ N = 'Name'; E = { $_.Name } },
-                    @{ N = 'Description'; E = { $_.Description } })
-                $picked = $display | Show-OGV -Title "Select $Category to REMOVE   [~]=Locally modified (removal is permanent)" -SearchKey "Select $Category to REMOVE" -PassThru
-                if (-not $picked) { return @() }
-                $pickedNames = @($picked | Where-Object { $_.Name -ne '-- none / skip --' } | ForEach-Object { $_.Name })
-                return @($removable | Where-Object { $pickedNames -contains $_.Name })
-            }
-            else {
-                Write-Host "  Out-GridView not available in this PowerShell environment. Falling back to console picker." -ForegroundColor Yellow
-            }
-        }
-    }
-
-    # Try fzf terminal fuzzy multi-select if available
-    $fzfPicked = Show-FzfPicker -Title "Select $Category to REMOVE" -Items $removable
-    if ($null -ne $fzfPicked) { return $fzfPicked }
-
-    Write-Host ""
-    Write-Host "  === Remove $Category ===" -ForegroundColor Red
-    Write-Host "  [~] = locally modified — removal is permanent" -ForegroundColor Gray
-    for ($i = 0; $i -lt $removable.Count; $i++) {
-        $mod = if ($removable[$i].LocallyModified) { '[~]' } else { '   ' }
-        $color = if ($removable[$i].LocallyModified) { 'Yellow' } else { 'White' }
-        Write-Host ("  {0,3}. {1} {2}" -f ($i + 1), $mod, $removable[$i].Name) -ForegroundColor $color
-        if ($removable[$i].Description) {
-            Write-Host ("           {0}" -f $removable[$i].Description) -ForegroundColor Gray
-        }
-    }
-    Write-Host ""
-    Write-Host "  Enter numbers to REMOVE (e.g. 1,3, 'all', or blank to skip): " -NoNewline -ForegroundColor Red
-    $rawInput = Read-Host
-    if (-not $rawInput -or $rawInput.Trim() -eq '') { return @() }
-    if ($rawInput.Trim() -eq 'all') { return $removable }
-
-    $indices = @()
-    foreach ($part in $rawInput.Split(',')) {
-        $part = $part.Trim()
-        if ($part -match '^(\d+)-(\d+)$') {
-            $indices += ([int]$Matches[1])..[int]$Matches[2]
-        }
-        elseif ($part -match '^\d+$') {
-            $indices += [int]$part
-        }
-    }
-    return @($removable | Where-Object { $indices -contains ([Array]::IndexOf($removable, $_) + 1) })
+    $title = "Select $Category to REMOVE"
+    return @(Show-ItemPicker -Title $title -Items $removable -Gui:$Gui -IsRemoval)
 }
 
 
