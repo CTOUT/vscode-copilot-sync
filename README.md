@@ -34,7 +34,7 @@ A PowerShell toolkit to sync, install, and manage [GitHub Copilot](https://githu
 > ./run.sh sync                          # Run sync-awesome-copilot.ps1
 > ```
 >
-> User directory paths on macOS (`~/Library/Application Support/Code/User/prompts`) and Linux (`~/.config/Code/User/prompts`) are resolved automatically. Terminal fuzzy picking is supported via `fzf` when installed, falling back to a numbered console menu.
+> User-level customizations are installed under `~/.copilot` on all platforms. Existing files in the former VS Code prompts directory remain manageable for update, uninstall, and bootstrap operations. Terminal fuzzy picking is supported via `fzf` when installed, falling back to a numbered console menu.
 
 ## Quick Start
 
@@ -107,7 +107,7 @@ The picker auto-detects your language/framework and marks relevant items with �
 # Remove resources from the current repo's .github/ only
 .\configure.ps1 -Uninstall -Scope repo
 
-# Remove user-level resources (prompts dir + skills dir)
+# Remove user-level resources (~/.copilot and its skills directory)
 .\configure.ps1 -Uninstall -Scope user
 
 # Remove both repo and user-level resources in one pass
@@ -220,7 +220,7 @@ Or call the update scripts directly for more control:
 # 1. Pull the latest from awesome-copilot into the local cache
 .\scripts\sync-awesome-copilot.ps1
 
-# 2. Update user-level resources (agents, instructions, skills in %APPDATA% / ~/.copilot)
+# 2. Update user-level resources (agents, instructions, and skills under ~/.copilot)
 .\scripts\update-user.ps1
 
 # 3. Update repo-level resources in the current repo
@@ -336,13 +336,17 @@ Reads `.github/.copilot-subscriptions.json` and applies any upstream changes fro
 
 ### `scripts/init-user.ps1` — Configure user-level resources
 
-Installs agents, instructions, and skills into user-level locations, making them available across **all repos and VS Code windows** — no `.github/` needed.
+Installs agents, instructions, and skills into user-level locations, making them available across **Copilot harness sessions in all repos** — no `.github/` needed.
 
-| Resource     | Location                                        |
-| ------------ | ----------------------------------------------- |
-| Agents       | `%APPDATA%\Code\User\prompts\*.agent.md`        |
-| Instructions | `%APPDATA%\Code\User\prompts\*.instructions.md` |
-| Skills       | `~/.copilot/skills/<name>/`                     |
+| Resource     | Location                                    |
+| ------------ | ------------------------------------------- |
+| Agents       | `~/.copilot/agents/*.agent.md`              |
+| Instructions | `~/.copilot/instructions/*.instructions.md` |
+| Skills       | `~/.copilot/skills/<name>/`                 |
+
+VS Code stores user MCP server configuration separately in `$COPILOT_HOME/mcp-config.json`, or `~/.copilot/mcp-config.json` when `COPILOT_HOME` is not set. These scripts do not manage that file.
+
+On the next user-scoped `configure.ps1` run, install, update, bootstrap, or uninstall, legacy `*.agent.md` and `*.instructions.md` files in the former VS Code prompts directory are migrated to the locations above. The source is removed only after the copied file's SHA-256 hash is verified. Identical duplicates are removed; conflicting files are left intact and reported for manual resolution. Other prompt files are not moved.
 
 This is ideal for general-purpose, tech-agnostic resources you always want active (e.g. security standards, accessibility guidelines, cross-cutting agents). Tech-specific items are still available in the picker but not pre-starred.
 
@@ -361,8 +365,8 @@ This is ideal for general-purpose, tech-agnostic resources you always want activ
 .\scripts\init-user.ps1 -Instructions "security-and-owasp,markdown-accessibility"
 .\scripts\init-user.ps1 -Skills "refactor,create-readme"
 
-# Non-default VS Code installations
-.\scripts\init-user.ps1 -PromptsDir "$env:APPDATA\Code - Insiders\User\prompts"
+# Override the user customization directories
+.\scripts\init-user.ps1 -AgentsDir "$HOME/.copilot/agents" -InstructionsDir "$HOME/.copilot/instructions"
 ```
 
 > **`-Bootstrap`** is useful when `user-subscriptions.json` is missing but resources are already on disk — for example after upgrading from v1.x or after manually copying files from the cache. It registers them all as subscriptions so `update-user.ps1` can track and update them without requiring a full reinstall through the picker.

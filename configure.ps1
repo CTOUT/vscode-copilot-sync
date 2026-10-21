@@ -5,7 +5,7 @@ Main entry point for all Copilot resource management operations.
 Chains the scripts in the correct order:
 
   1. sync-awesome-copilot.ps1   -- fetch latest from github/awesome-copilot
-  2. init-user.ps1              -- (prompted) user-level agents → %APPDATA%\Code\User\prompts\
+    2. init-user.ps1              -- (prompted) user-level customizations → ~/.copilot/
   3. init-repo.ps1              -- (prompted) per-repo .github/ setup
 
 Usage:
@@ -168,6 +168,12 @@ if ($Update) {
             if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Log "update-user failed (exit $LASTEXITCODE)" 'ERROR'; exit $LASTEXITCODE }
         }
         else {
+            $migrationResult = Invoke-LegacyUserCustomizationMigration `
+                -LegacyDirectory (Resolve-LegacyPromptsDirectory) `
+                -AgentsDirectory (Resolve-AgentsDirectory) `
+                -InstructionsDirectory (Resolve-InstructionsDirectory) `
+                -DryRun:$DryRun
+            Write-LegacyUserCustomizationMigrationSummary -Result $migrationResult -DryRun:$DryRun
             Log "No user-level subscriptions found — nothing to update." 'WARN'
         }
     }
@@ -201,6 +207,13 @@ if ($Update) {
 
 #region Step 1.5 — User-level resources
 if (-not $SkipUser) {
+    $migrationResult = Invoke-LegacyUserCustomizationMigration `
+        -LegacyDirectory (Resolve-LegacyPromptsDirectory) `
+        -AgentsDirectory (Resolve-AgentsDirectory) `
+        -InstructionsDirectory (Resolve-InstructionsDirectory) `
+        -DryRun:$DryRun
+    Write-LegacyUserCustomizationMigrationSummary -Result $migrationResult -DryRun:$DryRun
+
     $userManifestFile = "$HOME\.awesome-copilot\user-subscriptions.json"
     $userSubCount = 0
 
@@ -222,7 +235,9 @@ if (-not $SkipUser) {
         # Auto-bootstrap registers all installed cache-origin files so update-user.ps1
         # can manage them going forward.
         $cacheRoot = "$HOME\.awesome-copilot"
-        $promptsDir = Resolve-PromptsDirectory
+        $agentsDir = Resolve-AgentsDirectory
+        $instructionsDir = Resolve-InstructionsDirectory
+        $legacyPromptsDir = Resolve-LegacyPromptsDirectory
         $skillsDir = Resolve-SkillsDirectory
         $untrackedCount = 0
         foreach ($cat in @('agents', 'instructions', 'skills')) {
@@ -234,8 +249,12 @@ if (-not $SkipUser) {
             }
             else {
                 $pattern = if ($cat -eq 'agents') { '*.agent.md' } else { '*.instructions.md' }
+                $categoryDir = if ($cat -eq 'agents') { $agentsDir } else { $instructionsDir }
                 $untrackedCount += (Get-ChildItem $cDir -Filter $pattern -EA SilentlyContinue |
-                    Where-Object { Test-Path (Join-Path $promptsDir $_.Name) }).Count
+                    Where-Object {
+                        (Test-Path (Join-Path $categoryDir $_.Name)) -or
+                        (Test-Path (Join-Path $legacyPromptsDir $_.Name))
+                    }).Count
             }
         }
         if ($untrackedCount -gt 0) {

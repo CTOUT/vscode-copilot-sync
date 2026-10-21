@@ -9,14 +9,16 @@ Scripts are designed to be run in this order:
 ```text
 configure.ps1                      # Main entry point (chains all steps)
 scripts/sync-awesome-copilot.ps1   # 1. Clone/pull github/awesome-copilot → ~/.awesome-copilot/
-scripts/init-user.ps1              # 2. User-level resources → prompts\ and ~/.copilot/skills/
+scripts/init-user.ps1              # 2. User-level resources → ~/.copilot/{agents,instructions,skills}/
 scripts/init-repo.ps1              # 3. Interactive per-repo setup → .github/
 ```
 
 **Resource scopes:**
 
-- **User-level** (all VS Code sessions, no .github/ needed): Agents + Instructions → `%APPDATA%\Code\User\prompts\`; Skills → `~/.copilot/skills/`
-- **Per-repo** (committed to `.github/`): Agents, Instructions, Hooks, Workflows, Skills
+- **User-level** (all Copilot harness sessions, no `.github/` needed): Agents → `~/.copilot/agents/`; Instructions → `~/.copilot/instructions/`; Skills → `~/.copilot/skills/`
+- **Per-repo** (committed to `.github/`): Agents → `.github/agents/`; Instructions → `.github/instructions/`; Skills → `.github/skills/`. Hooks and workflows are optional catalog categories.
+
+MCP server configuration is not managed by this repository. Workspace MCP configuration is `.mcp.json`; user configuration is `$COPILOT_HOME/mcp-config.json` or `~/.copilot/mcp-config.json` when `COPILOT_HOME` is unset.
 
 ## Key Conventions
 

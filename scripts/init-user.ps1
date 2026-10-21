@@ -4,14 +4,12 @@ Initialize User-Level Copilot Resources
 Installs agents, instructions, and skills into user-level VS Code and Copilot
 locations, making them available across all repos and VS Code windows — no .github/ needed.
 
-  Agents       --> User Prompts dir (*.agent.md)
-  Instructions --> User Prompts dir (*.instructions.md)
+    Agents       --> ~/.copilot/agents/*.agent.md
+    Instructions --> ~/.copilot/instructions/*.instructions.md
   Skills       --> ~/.copilot/skills/<skill-name>/
 
-  Default Prompts Directory:
-    Windows: %APPDATA%\Code\User\prompts
-    macOS:   ~/Library/Application Support/Code/User/prompts
-    Linux:   ~/.config/Code/User/prompts (or $XDG_CONFIG_HOME/Code/User/prompts)
+    Existing agents and instructions in the former prompts directory are migrated
+    automatically to their Copilot harness directories on the next user operation.
 
 Subscription manifest stored at: ~/.awesome-copilot/user-subscriptions.json
 
@@ -32,8 +30,8 @@ Usage:
   .\init-user.ps1 -Category "agents,skills"
   .\init-user.ps1 -Category "instructions"
 
-  # Target a non-default VS Code installation (e.g. Insiders)
-  .\init-user.ps1 -PromptsDir "$env:APPDATA\Code - Insiders\User\prompts"
+    # Override the user-level agent and instruction directories
+    .\init-user.ps1 -AgentsDir "$HOME/.copilot/agents" -InstructionsDir "$HOME/.copilot/instructions"
 
   # Dry run - show what would be installed
   .\init-user.ps1 -DryRun
@@ -53,7 +51,9 @@ Usage:
 
 Notes:
   - Files are only overwritten if the source is newer/different.
-  - The prompts folder and skills folder are created if they don't exist.
+    - Copilot user directories are created if they don't exist.
+    - Legacy user agents and instructions are moved once; different destination files
+        are preserved and reported as conflicts instead of being overwritten.
   - A subscription manifest (user-subscriptions.json) is written to the cache
     folder (~/.awesome-copilot/). Run update-user.ps1 to check for upstream changes.
   - The selection UI defaults to a cross-platform terminal selector (fzf fuzzy
@@ -67,7 +67,9 @@ Notes:
 #>
 [CmdletBinding()] param(
     [string]$SourceRoot = "$HOME/.awesome-copilot",
-    [string]$PromptsDir = '',
+    [string]$PromptsDir = '', # Legacy override: install agents and instructions directly in this directory
+    [string]$AgentsDir = '',
+    [string]$InstructionsDir = '',
     [string]$SkillsDir  = '',
     [string]$Agents = '',   # Comma-separated names to pre-select (non-interactive)
     [string]$Instructions = '',
@@ -97,8 +99,21 @@ if (Test-Path $ConfigLib) {
     }
 }
 
-if (-not $PromptsDir) { $PromptsDir = Resolve-PromptsDirectory }
+if ($PromptsDir) {
+    if (-not $AgentsDir) { $AgentsDir = $PromptsDir }
+    if (-not $InstructionsDir) { $InstructionsDir = $PromptsDir }
+}
+if (-not $AgentsDir) { $AgentsDir = Resolve-AgentsDirectory }
+if (-not $InstructionsDir) { $InstructionsDir = Resolve-InstructionsDirectory }
+$LegacyPromptsDir = Resolve-LegacyPromptsDirectory
 if (-not $SkillsDir)  { $SkillsDir  = Resolve-SkillsDirectory }
+
+$migrationResult = Invoke-LegacyUserCustomizationMigration `
+    -LegacyDirectory $LegacyPromptsDir `
+    -AgentsDirectory $AgentsDir `
+    -InstructionsDirectory $InstructionsDir `
+    -DryRun:$DryRun
+Write-LegacyUserCustomizationMigrationSummary -Result $migrationResult -DryRun:$DryRun
 
 # -Category: translate to Skip* flags (only the listed categories are processed)
 if ($Category) {
@@ -117,7 +132,8 @@ if (-not (Test-Path $SourceRoot)) {
     Log "Cache not found: $SourceRoot -- run sync-awesome-copilot.ps1 first" 'ERROR'; exit 1
 }
 
-Log "VS Code user prompts : $PromptsDir"
+Log "Copilot user agents  : $AgentsDir"
+Log "Copilot instructions : $InstructionsDir"
 Log "Copilot skills dir   : $SkillsDir"
 Log "Copilot cache        : $SourceRoot"
 
@@ -127,7 +143,6 @@ Log "Copilot cache        : $SourceRoot"
 
 function Install-File {
     param([string]$Src, [string]$DestDir)
-    Assert-PathWithin -Path $DestDir -ParentDirectory $PromptsDir
     if (-not $DryRun -and -not (Test-Path $DestDir)) {
         New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
     }
@@ -142,8 +157,8 @@ function Install-File {
 }
 
 function Remove-File {
-    param([string]$FilePath)
-    Assert-PathWithin -Path $FilePath -ParentDirectory $PromptsDir
+    param([string]$FilePath, [string]$ParentDirectory)
+    Assert-PathWithin -Path $FilePath -ParentDirectory $ParentDirectory
     if ($DryRun) { return 'would-remove' }
     if (Test-Path $FilePath) { Remove-Item $FilePath -Force; return 'removed' }
     return 'not-found'
@@ -195,6 +210,11 @@ function Test-RequiresSetup([string]$FilePath) {
         return $text -match 'mcp-servers:|_API_KEY\b|COPILOT_MCP_'
     }
     catch { return $false }
+}
+
+function Get-InstalledUserFilePath([string]$FileName, [string]$Category) {
+    $currentDir = if ($Category -eq 'agents') { $AgentsDir } else { $InstructionsDir }
+    return (Join-Path $currentDir $FileName)
 }
 
 function Update-UserSubscriptions {
@@ -426,7 +446,7 @@ if (Test-Path $CataloguePath) {
 function Build-UserCatalogue([string]$CatDir, [string]$Pattern, [string]$Category) {
     if (-not (Test-Path $CatDir)) { return @() }
     Get-ChildItem $CatDir -File | Where-Object { $_.Name -match $Pattern } | ForEach-Object {
-        $destFile = Join-Path $PromptsDir $_.Name
+        $destFile = Get-InstalledUserFilePath -FileName $_.Name -Category $Category
         $itemName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.(instructions|agent|prompt|chatmode)$', ''
         $subKey = "$Category|$itemName"
         $subEntry = $script:UserSubIndex[$subKey]
@@ -460,6 +480,8 @@ function Build-UserCatalogue([string]$CatDir, [string]$Pattern, [string]$Categor
             ManagedByScript  = $managedByScript
             UpdateAvailable  = $updateAvailable
             LocallyModified  = $locallyModified
+            InstalledPath    = $destFile
+            InstalledRoot    = Split-Path $destFile -Parent
         }
     } | Sort-Object Name
 }
@@ -568,7 +590,7 @@ if ($Bootstrap) {
     if (Test-Path $agentCacheDir) {
         Get-ChildItem $agentCacheDir -File | Where-Object { $_.Name -match '\.agent\.md$' } | ForEach-Object {
             $itemName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.agent$', ''
-            $destFile = Join-Path $PromptsDir $_.Name
+            $destFile = Join-Path $AgentsDir $_.Name
             if ((Test-Path $destFile) -and -not $script:UserSubIndex.ContainsKey("agents|$itemName")) {
                 Log "  Register agent: $itemName"
                 if (-not $DryRun) {
@@ -591,7 +613,7 @@ if ($Bootstrap) {
     if (Test-Path $instrCacheDir) {
         Get-ChildItem $instrCacheDir -File | Where-Object { $_.Name -match '\.instructions\.md$' } | ForEach-Object {
             $itemName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -replace '\.instructions$', ''
-            $destFile = Join-Path $PromptsDir $_.Name
+            $destFile = Join-Path $InstructionsDir $_.Name
             if ((Test-Path $destFile) -and -not $script:UserSubIndex.ContainsKey("instructions|$itemName")) {
                 Log "  Register instruction: $itemName"
                 if (-not $DryRun) {
@@ -643,7 +665,7 @@ if ($Bootstrap) {
                 $n = if ($isDir) { $item.Name } else {
                     [System.IO.Path]::GetFileNameWithoutExtension($item.Name) -replace '\.(agent|instructions)$', ''
                 }
-                $destPath = if ($isDir) { Join-Path $SkillsDir $n } else { Join-Path $PromptsDir $item.Name }
+                $destPath = if ($isDir) { Join-Path $SkillsDir $n } else { Get-InstalledUserFilePath -FileName $item.Name -Category $cat }
                 if ((Test-Path $destPath) -and -not $script:UserSubIndex.ContainsKey("$cat|$n")) { $wouldCount++ }
             }
         }
@@ -679,7 +701,7 @@ if (-not $SkipAgents) {
     if ($Uninstall) {
         $toRemove = Select-UserToRemove -Category 'Agents' -Items $catAgents
         foreach ($item in $toRemove) {
-            $result = Remove-File -FilePath (Join-Path $PromptsDir $item.FileName)
+            $result = Remove-File -FilePath $item.InstalledPath -ParentDirectory $item.InstalledRoot
             $verb = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
             Log "$verb  user agent: $($item.FileName)"
         }
@@ -691,7 +713,7 @@ if (-not $SkipAgents) {
         $selected = Select-UserItems -Category 'Agents' -Items $catAgents -PreSelected $Agents
 
         foreach ($item in $selected) {
-            $result = Install-File -Src $item.FullPath -DestDir $PromptsDir
+            $result = Install-File -Src $item.FullPath -DestDir $AgentsDir
             $verb = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
             Log "$verb  user agent: $($item.FileName)"
             if ($result -in 'added', 'updated', 'would-copy') { $totalInstalled++ }
@@ -719,7 +741,7 @@ if (-not $SkipInstructions) {
     if ($Uninstall) {
         $toRemove = Select-UserToRemove -Category 'Instructions' -Items $catInstructions
         foreach ($item in $toRemove) {
-            $result = Remove-File -FilePath (Join-Path $PromptsDir $item.FileName)
+            $result = Remove-File -FilePath $item.InstalledPath -ParentDirectory $item.InstalledRoot
             $verb = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
             Log "$verb  user instruction: $($item.FileName)"
         }
@@ -731,7 +753,7 @@ if (-not $SkipInstructions) {
         $selected = Select-UserItems -Category 'Instructions' -Items $catInstructions -PreSelected $Instructions
 
         foreach ($item in $selected) {
-            $result = Install-File -Src $item.FullPath -DestDir $PromptsDir
+            $result = Install-File -Src $item.FullPath -DestDir $InstructionsDir
             $verb = switch ($result) { 'added' { '✓ Added' } 'updated' { '↑ Updated' } 'unchanged' { '= Unchanged' } default { '~ DryRun' } }
             Log "$verb  user instruction: $($item.FileName)"
             if ($result -in 'added', 'updated', 'would-copy') { $totalInstalled++ }
@@ -807,7 +829,8 @@ else {
     Log "$totalInstalled user-level resource(s) installed/updated." 'SUCCESS'
     if ($totalInstalled -gt 0) {
         if (-not $SkipAgents -or -not $SkipInstructions) {
-            Log "Agents and instructions are available in all VS Code windows: $PromptsDir"
+            Log "Agents are available in all Copilot harness sessions: $AgentsDir"
+            Log "Instructions are available in all Copilot harness sessions: $InstructionsDir"
         }
         if (-not $SkipSkills) {
             Log "Skills are available at: $SkillsDir"

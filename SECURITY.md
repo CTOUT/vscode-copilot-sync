@@ -41,7 +41,7 @@ Vulnerabilities in any of these are in scope. Areas of particular interest:
 - **Remote content execution**: the sync scripts fetch file content from a third-party repository and write it directly to your local filesystem. A compromised upstream repository could introduce malicious instruction, agent, or workflow files.
 - **Path traversal**: filenames sourced from the upstream repository are used to construct destination paths. A crafted filename (e.g. `../../evil.ps1`) could attempt to write outside the intended `.github/` or prompts directory.
 - **`gh` / `git` invocations**: the scripts shell out to `gh` or `git`. Ensure neither is replaced with a malicious binary on your `PATH`.
-- **VS Code user prompts directory**: files written to `%APPDATA%\Code\User\prompts\` (or the platform equivalent) are picked up by GitHub Copilot for all repositories. A malicious file installed here has broad impact.
+- **Copilot user customization directories**: agents and instructions written to `~/.copilot/agents/` and `~/.copilot/instructions/` are available across repositories. A malicious file installed here has broad impact. Files in the former VS Code prompts directory can remain active for Local harness sessions until removed or migrated.
 
 ## Script Security Notes
 

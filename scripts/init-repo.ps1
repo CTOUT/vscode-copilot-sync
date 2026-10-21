@@ -620,7 +620,11 @@ function Build-FlatCatalogue([string]$CatDir, [string]$DestDir, [string]$Pattern
         }
 
         # Check if this item is already installed at user level (global prompts folder)
-        $userInstalled = $UserDir -and (Test-Path (Join-Path $UserDir $_.Name))
+        $currentUserDir = Join-Path $UserDir $Category
+        $userInstalled = $UserDir -and (
+            (Test-Path (Join-Path $currentUserDir $_.Name)) -or
+            (Test-Path (Join-Path $UserDir $_.Name))
+        )
 
         $meta = $script:CatalogueMeta[$subKey]
         $title = if ($meta -and $meta.title) { $meta.title } else { $itemName }

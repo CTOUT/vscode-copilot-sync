@@ -4,6 +4,10 @@
 
 ### Changed
 
+- **VS Code user customization location**:
+  - `scripts/lib/Common.ps1`: Resolve user agents and instructions to `~/.copilot/agents` and `~/.copilot/instructions`.
+  - `configure.ps1`, `scripts/init-user.ps1`, and `scripts/update-user.ps1`: Migrate legacy user agents and instructions to the Copilot harness directories, verifying copied content before removing the source and preserving destination conflicts.
+  - `README.md`, `SECURITY.md`, and `.github/copilot-instructions.md`: Document user and repo destinations and clarify that MCP configuration is outside this tool’s managed resource scope.
 - **Paginated console menu & top-down interactive selection**:
   - `scripts/lib/Common.ps1`: Implemented `Show-ConsoleMenu` featuring interactive pagination (15 items per page), keyword filtering (`/keyword` or `f keyword`), page navigation (`[n]ext` / `[p]rev`), range selection (`1-3`), bulk recommendation shortcuts (`rec` / `r`), and persistent accumulation across pages.
   - `scripts/lib/Common.ps1`: Configured `Show-FzfPicker` with `--layout=reverse`, `--height=80%`, `--border`, `--info=inline`, and `--cycle`, ensuring natural top-down reading order with recommended items at the top.

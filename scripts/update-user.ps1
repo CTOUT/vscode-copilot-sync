@@ -6,14 +6,12 @@ written by init-user.ps1, compares each subscribed resource against the local
 awesome-copilot cache, and applies any upstream updates.
 
 Handles all three user-level resource types:
-  Agents       -- User Prompts dir (*.agent.md)
-  Instructions -- User Prompts dir (*.instructions.md)
+    Agents       -- ~/.copilot/agents/*.agent.md
+    Instructions -- ~/.copilot/instructions/*.instructions.md
   Skills       -- ~/.copilot/skills/<skill-name>/
 
-  Default Prompts Directory:
-    Windows: %APPDATA%\Code\User\prompts
-    macOS:   ~/Library/Application Support/Code/User/prompts
-    Linux:   ~/.config/Code/User/prompts (or $XDG_CONFIG_HOME/Code/User/prompts)
+    Files from the former prompts directory are migrated automatically before
+    subscription checks. Conflicting destination files are never overwritten.
 
 Usage:
   # Check for and apply updates (interactive prompt)
@@ -25,8 +23,8 @@ Usage:
   # Apply all updates without prompting
   .\update-user.ps1 -Force
 
-  # Target a non-default VS Code installation (e.g. Insiders)
-  .\update-user.ps1 -PromptsDir "$env:APPDATA\Code - Insiders\User\prompts"
+    # Override the user-level agent and instruction directories
+    .\update-user.ps1 -AgentsDir "$HOME/.copilot/agents" -InstructionsDir "$HOME/.copilot/instructions"
 
   # Only check/update specific categories
   .\update-user.ps1 -Category "agents,skills"
@@ -44,6 +42,8 @@ Notes:
 [CmdletBinding()] param(
     [string]$SourceRoot = "$HOME/.awesome-copilot",
     [string]$PromptsDir = '',
+    [string]$AgentsDir = '',
+    [string]$InstructionsDir = '',
     [string]$SkillsDir  = '',
     [switch]$Force,
     [switch]$DryRun,
@@ -56,8 +56,21 @@ $ErrorActionPreference = 'Stop'
 $CommonLib = Join-Path $PSScriptRoot 'lib\Common.ps1'
 if (Test-Path $CommonLib) { . $CommonLib }
 
-if (-not $PromptsDir) { $PromptsDir = Resolve-PromptsDirectory }
+if ($PromptsDir) {
+    if (-not $AgentsDir) { $AgentsDir = $PromptsDir }
+    if (-not $InstructionsDir) { $InstructionsDir = $PromptsDir }
+}
+if (-not $AgentsDir) { $AgentsDir = Resolve-AgentsDirectory }
+if (-not $InstructionsDir) { $InstructionsDir = Resolve-InstructionsDirectory }
+$LegacyPromptsDir = Resolve-LegacyPromptsDirectory
 if (-not $SkillsDir)  { $SkillsDir  = Resolve-SkillsDirectory }
+
+$migrationResult = Invoke-LegacyUserCustomizationMigration `
+    -LegacyDirectory $LegacyPromptsDir `
+    -AgentsDirectory $AgentsDir `
+    -InstructionsDirectory $InstructionsDir `
+    -DryRun:$DryRun
+Write-LegacyUserCustomizationMigrationSummary -Result $migrationResult -DryRun:$DryRun
 
 #endregion # Initialisation
 
@@ -91,7 +104,8 @@ if (-not (Test-Path $SourceRoot)) {
 
 Log "Checking $($subs.Count) user-level resource(s) for upstream changes..."
 Log "Cache      : $SourceRoot"
-Log "Prompts dir: $PromptsDir"
+Log "Agents dir : $AgentsDir"
+Log "Instr. dir : $InstructionsDir"
 Log "Skills dir : $SkillsDir"
 
 #endregion # Load subscriptions
@@ -107,11 +121,14 @@ foreach ($sub in $subs) {
         continue
     }
 
-    # Route destination by category: skills → SkillsDir, everything else → PromptsDir
-    $destPath = if ($sub.type -eq 'directory') {
-        Join-Path $SkillsDir $sub.dirName
-    } else {
-        Join-Path $PromptsDir $sub.fileName
+    # Resolve subscriptions to the current Copilot harness locations.
+    if ($sub.type -eq 'directory') {
+        $destPath = Join-Path $SkillsDir $sub.dirName
+        $destRoot = $SkillsDir
+    }
+    else {
+        $destRoot = if ($sub.category -eq 'agents') { $AgentsDir } else { $InstructionsDir }
+        $destPath = Join-Path $destRoot $sub.fileName
     }
 
     if (-not (Test-Path $destPath)) {
@@ -130,6 +147,7 @@ foreach ($sub in $subs) {
             Sub         = $sub
             SourcePath  = $sourcePath
             DestPath    = $destPath
+            DestRoot    = $destRoot
             CurrentHash = $currentHash
         })
         Log "↑ Stale : $($sub.name) ($($sub.category))"
@@ -170,12 +188,12 @@ foreach ($item in $stale) {
     $sub = $item.Sub
     try {
         if ($sub.type -eq 'file') {
-            Assert-PathWithin -Path $item.DestPath -ParentDirectory $PromptsDir
+            Assert-PathWithin -Path $item.DestPath -ParentDirectory $item.DestRoot
             $destDir = Split-Path $item.DestPath -Parent
             if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
             Copy-Item $item.SourcePath $item.DestPath -Force
         } else {
-            Assert-PathWithin -Path $item.DestPath -ParentDirectory $SkillsDir
+            Assert-PathWithin -Path $item.DestPath -ParentDirectory $item.DestRoot
             # Mirror all files from the source directory into the destination
             Get-ChildItem $item.SourcePath -File -Recurse | ForEach-Object {
                 $rel     = $_.FullName.Substring($item.SourcePath.Length).TrimStart('\', '/')
@@ -202,7 +220,8 @@ $manifest | ConvertTo-Json -Depth 5 | Set-Content $ManifestPath -Encoding UTF8
 
 Write-Host ""
 Log "$updated user-level resource(s) updated." 'SUCCESS'
-Log "Prompts : $PromptsDir"
+Log "Agents  : $AgentsDir"
+Log "Instr.  : $InstructionsDir"
 Log "Skills  : $SkillsDir"
 
 #endregion # Apply updates

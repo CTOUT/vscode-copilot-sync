@@ -86,7 +86,31 @@ function Log {
 function Resolve-PromptsDirectory {
     <#
     .SYNOPSIS
-    Resolves the standard VS Code user prompts directory across macOS, Linux, and Windows.
+    Resolves the Copilot user customization root (~/.copilot).
+    #>
+    return (Join-Path $HOME '.copilot')
+}
+
+function Resolve-AgentsDirectory {
+    <#
+    .SYNOPSIS
+    Resolves the Copilot user agents directory (~/.copilot/agents).
+    #>
+    return (Join-Path (Resolve-PromptsDirectory) 'agents')
+}
+
+function Resolve-InstructionsDirectory {
+    <#
+    .SYNOPSIS
+    Resolves the Copilot user instructions directory (~/.copilot/instructions).
+    #>
+    return (Join-Path (Resolve-PromptsDirectory) 'instructions')
+}
+
+function Resolve-LegacyPromptsDirectory {
+    <#
+    .SYNOPSIS
+    Resolves the former VS Code user prompts directory for migration compatibility.
     #>
     if ($IsMacOS) {
         return (Join-Path $HOME 'Library/Application Support/Code/User/prompts')
@@ -106,7 +130,129 @@ function Resolve-SkillsDirectory {
     .SYNOPSIS
     Resolves the standard user-level Copilot skills directory (~/.copilot/skills).
     #>
-    return (Join-Path $HOME '.copilot/skills')
+    return (Join-Path (Resolve-PromptsDirectory) 'skills')
+}
+
+function Invoke-LegacyUserCustomizationMigration {
+    <#
+    .SYNOPSIS
+    Moves legacy user agents and instructions into Copilot harness directories.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$LegacyDirectory,
+        [Parameter(Mandatory = $true)][string]$AgentsDirectory,
+        [Parameter(Mandatory = $true)][string]$InstructionsDirectory,
+        [switch]$DryRun
+    )
+
+    $result = [ordered]@{
+        FilesMoved             = 0
+        FilesWouldMove         = 0
+        DuplicateFilesRemoved  = 0
+        DuplicateFilesWouldRemove = 0
+        Conflicts              = [System.Collections.Generic.List[string]]::new()
+        Errors                 = [System.Collections.Generic.List[string]]::new()
+    }
+
+    if (-not (Test-Path -LiteralPath $LegacyDirectory -PathType Container)) {
+        return [pscustomobject]$result
+    }
+
+    $migrations = @(
+        [pscustomobject]@{ Pattern = '*.agent.md'; Destination = $AgentsDirectory },
+        [pscustomobject]@{ Pattern = '*.instructions.md'; Destination = $InstructionsDirectory }
+    )
+
+    foreach ($migration in $migrations) {
+        $legacyRoot = [System.IO.Path]::GetFullPath($LegacyDirectory)
+        $destinationRoot = [System.IO.Path]::GetFullPath($migration.Destination)
+        if ($legacyRoot.TrimEnd('\', '/') -eq $destinationRoot.TrimEnd('\', '/')) { continue }
+
+        try {
+            $legacyFiles = @(Get-ChildItem -LiteralPath $LegacyDirectory -File -Filter $migration.Pattern -ErrorAction Stop)
+        }
+        catch {
+            $result.Errors.Add("$($migration.Pattern): $($_.Exception.Message)")
+            continue
+        }
+
+        foreach ($legacyFile in $legacyFiles) {
+            $sourcePath = $legacyFile.FullName
+            $fileName = $legacyFile.Name
+            $destinationPath = Join-Path $migration.Destination $fileName
+
+            try {
+                Assert-PathWithin -Path $sourcePath -ParentDirectory $LegacyDirectory
+                Assert-PathWithin -Path $destinationPath -ParentDirectory $migration.Destination
+
+                if (Test-Path -LiteralPath $destinationPath -PathType Leaf) {
+                    $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
+                    $destinationHash = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash
+                    if ($sourceHash -eq $destinationHash) {
+                        if ($DryRun) {
+                            $result.DuplicateFilesWouldRemove++
+                        }
+                        else {
+                            Remove-Item -LiteralPath $sourcePath -Force -ErrorAction Stop
+                            $result.DuplicateFilesRemoved++
+                        }
+                    }
+                    else {
+                        $result.Conflicts.Add($fileName)
+                    }
+                    continue
+                }
+
+                if ($DryRun) {
+                    $result.FilesWouldMove++
+                    continue
+                }
+
+                if (-not (Test-Path -LiteralPath $migration.Destination -PathType Container)) {
+                    New-Item -ItemType Directory -Path $migration.Destination -Force -ErrorAction Stop | Out-Null
+                }
+
+                [System.IO.File]::Copy($sourcePath, $destinationPath, $false)
+                $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
+                $destinationHash = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash
+                if ($sourceHash -ne $destinationHash) {
+                    Remove-Item -LiteralPath $destinationPath -Force -ErrorAction SilentlyContinue
+                    throw "Copied content did not match the source."
+                }
+
+                Remove-Item -LiteralPath $sourcePath -Force -ErrorAction Stop
+                $result.FilesMoved++
+            }
+            catch {
+                $result.Errors.Add("$fileName`: $($_.Exception.Message)")
+            }
+        }
+    }
+
+    return [pscustomobject]$result
+}
+
+function Write-LegacyUserCustomizationMigrationSummary {
+    param(
+        [Parameter(Mandatory = $true)][object]$Result,
+        [switch]$DryRun
+    )
+
+    if ($Result.FilesMoved -gt 0) {
+        Log "Migrated $($Result.FilesMoved) legacy user customization file(s) to Copilot harness directories." 'SUCCESS'
+    }
+    if ($DryRun -and ($Result.FilesWouldMove -gt 0 -or $Result.DuplicateFilesWouldRemove -gt 0)) {
+        Log "[DryRun] Would migrate $($Result.FilesWouldMove) file(s) and remove $($Result.DuplicateFilesWouldRemove) identical duplicate(s)." 'WARN'
+    }
+    if ($Result.DuplicateFilesRemoved -gt 0) {
+        Log "Removed $($Result.DuplicateFilesRemoved) identical legacy duplicate(s)." 'INFO'
+    }
+    foreach ($fileName in $Result.Conflicts) {
+        Log "Could not migrate '$fileName': a different file already exists at the Copilot destination. Resolve the conflict manually; neither file was overwritten or removed." 'WARN'
+    }
+    foreach ($errorMessage in $Result.Errors) {
+        Log "Legacy user customization migration failed: $errorMessage" 'ERROR'
+    }
 }
 
 function Get-FrontmatterDescription {
