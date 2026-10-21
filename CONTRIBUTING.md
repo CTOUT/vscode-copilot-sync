@@ -47,9 +47,18 @@ Feature requests are welcome! Please include:
 
    ```powershell
    # Automated quality gates (matching CI workflows)
-   npm run format                       # Prettier check & format
+   npm ci
+   npm audit --audit-level=high
+   npm run format:check
    npm run spellcheck                   # CSpell dictionary validation
-   npx markdownlint-cli "**/*.md"      # Markdown accessibility & linting
+
+   # PowerShell tests and analysis (PowerShell 7+)
+   Install-Module -Name Pester -RequiredVersion 6.2.0 -Force -Scope CurrentUser
+   Invoke-Pester -Path scripts/lib/Common.Tests.ps1 -CI
+   Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.24.0 -Force -Scope CurrentUser
+   $psFiles = Get-ChildItem -Recurse -Include *.ps1, *.psm1, *.psd1 -Exclude node_modules, bin, obj
+   $errors = $psFiles | Invoke-ScriptAnalyzer | Where-Object { $_.Severity -eq 'Error' }
+   if ($errors) { $errors | Format-Table; exit 1 }
 
    # Full dry run (no files written)
    .\configure.ps1 -DryRun
@@ -142,7 +151,7 @@ Before submitting a PR, verify:
 - [ ] Logging uses `Log` / `Write-CopilotLog` from `scripts/lib/Common.ps1`
 - [ ] Error handling covers edge cases with `$ErrorActionPreference = 'Stop'`
 - [ ] `-DryRun` / `-Plan` produces correct output without writing files
-- [ ] Quality gates pass (`npm run format`, `npm run spellcheck`, markdownlint)
+- [ ] Quality gates pass (`npm audit --audit-level=high`, `npm run format:check`, `npm run spellcheck`, Pester, and PSScriptAnalyzer)
 - [ ] No breaking changes to existing functionality
 - [ ] Documentation updated
 - [ ] CHANGELOG.md updated

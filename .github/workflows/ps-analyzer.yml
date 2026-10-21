@@ -13,18 +13,26 @@ on:
       - "**.psd1"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: PSScriptAnalyzer
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          Install-Module -Name Pester -RequiredVersion 6.2.0 -Force -Scope CurrentUser
+          Invoke-Pester -Path scripts/lib/Common.Tests.ps1 -CI
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
           $psFiles = Get-ChildItem -Recurse -Include *.ps1, *.psm1, *.psd1 -Exclude node_modules, bin, obj
           if ($psFiles) {
-            Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+            Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.24.0 -Force -Scope CurrentUser
             $results = $psFiles | Invoke-ScriptAnalyzer
             $errors = $results | Where-Object { $_.Severity -eq 'Error' }
             if ($errors) {

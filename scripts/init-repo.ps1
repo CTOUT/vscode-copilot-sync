@@ -279,6 +279,7 @@ if (-not (Test-Path $SourceRoot)) {
 }
 
 $GithubDir = Join-Path $RepoPath '.github'
+Assert-PathWithin -Path (Join-Path $GithubDir '.copilot-subscriptions.json') -ParentDirectory $RepoPath
 Log "Target repo  : $RepoPath"
 Log "Copilot cache: $SourceRoot"
 
@@ -982,27 +983,59 @@ if (-not $SkipPlugins) {
                 foreach ($comp in $subEntry.components) {
                     $destPath = Join-Path $GithubDir $comp.destRel
                     if ($comp.type -eq 'agent') {
+                        $componentRoot = Join-Path $GithubDir 'agents'
+                        $sourceRoot = Join-Path $item.FullPath 'agents'
+                        $sourcePath = Join-Path $SourceRoot $comp.srcRel
+                        Assert-PathWithin -Path $sourceRoot -ParentDirectory $item.FullPath
+                        Assert-PathWithin -Path $sourcePath -ParentDirectory $sourceRoot
+                        if ([System.IO.Path]::GetExtension($sourcePath) -ne '.md' -or (Split-Path $sourcePath -Leaf) -notmatch '\.agent\.md$') {
+                            throw "Invalid plugin agent source path '$($comp.srcRel)'."
+                        }
+                        $destPath = Join-Path $componentRoot (Split-Path $sourcePath -Leaf)
+                        Assert-PathWithin -Path $destPath -ParentDirectory $componentRoot
                         $result = Remove-File -FilePath $destPath
                         $verb = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
-                        Log "$verb  plugin agent: $($comp.destRel)"
+                        Log "$verb  plugin agent: $destPath"
                     }
                     elseif ($comp.type -eq 'skill') {
+                        $componentRoot = Join-Path $GithubDir 'skills'
+                        $sourceRoot = Join-Path $item.FullPath 'skills'
+                        $sourcePath = Join-Path $SourceRoot $comp.srcRel
+                        Assert-PathWithin -Path $sourceRoot -ParentDirectory $item.FullPath
+                        Assert-PathWithin -Path $sourcePath -ParentDirectory $sourceRoot
+                        if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
+                            throw "Invalid plugin skill source path '$($comp.srcRel)'."
+                        }
+                        $destPath = Join-Path $componentRoot (Split-Path $sourcePath -Leaf)
+                        Assert-PathWithin -Path $destPath -ParentDirectory $componentRoot
                         $result = Remove-Directory -DirPath $destPath
                         $verb = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
-                        Log "$verb  plugin skill: $($comp.destRel)"
+                        Log "$verb  plugin skill: $destPath"
                     }
                     elseif ($comp.type -eq 'pluginJson') {
+                        $componentRoot = Join-Path $GithubDir 'plugin'
+                        $sourceRoot = Join-Path $item.FullPath '.github/plugin'
+                        $sourcePath = Join-Path $SourceRoot $comp.srcRel
+                        Assert-PathWithin -Path $sourceRoot -ParentDirectory $item.FullPath
+                        Assert-PathWithin -Path $sourcePath -ParentDirectory $sourceRoot
+                        if ((Split-Path $sourcePath -Leaf) -ne 'plugin.json') {
+                            throw "Invalid plugin metadata source path '$($comp.srcRel)'."
+                        }
+                        $destPath = Join-Path (Join-Path $componentRoot $item.Name) 'plugin.json'
+                        Assert-PathWithin -Path $destPath -ParentDirectory $componentRoot
                         $result = Remove-File -FilePath $destPath
                         # Also clean up empty plugin/<name>/ dir
                         if (-not $DryRun) {
                             $parentDir = Split-Path $destPath -Parent
+                            Assert-PathWithin -Path $parentDir -ParentDirectory $componentRoot
                             if ((Test-Path $parentDir) -and -not (Get-ChildItem $parentDir -Force)) {
                                 Remove-Item $parentDir -Force | Out-Null
                             }
                         }
                         $verb = if ($result -eq 'would-remove') { '~ DryRun remove' } else { '✗ Removed' }
-                        Log "$verb  plugin.json: $($comp.destRel)"
+                        Log "$verb  plugin.json: $destPath"
                     }
+                    else { throw "Unsupported plugin component type '$($comp.type)' for '$($item.Name)'." }
                 }
             }
         }

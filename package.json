@@ -1,6 +1,7 @@
 {
   "scripts": {
     "spellcheck": "cspell \"**/*.md\" \"**/*.ps1\" \"**/*.sh\" \"**/*.yml\" \"**/*.json\"",
+    "format:check": "prettier --check \"**/*.{md,json,yml,yaml}\"",
     "format": "prettier --write \"**/*.{md,json,yml,yaml}\""
   },
   "devDependencies": {

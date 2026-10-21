@@ -58,6 +58,7 @@ $RepoPath = Resolve-Path $RepoPath | Select-Object -ExpandProperty Path
 
 $GithubDir    = Join-Path $RepoPath '.github'
 $ManifestPath = Join-Path $GithubDir '.copilot-subscriptions.json'
+Assert-PathWithin -Path $ManifestPath -ParentDirectory $RepoPath
 
 if (-not (Test-Path $ManifestPath)) {
     Log "No subscriptions manifest found — run init-repo.ps1 first."
@@ -94,7 +95,31 @@ Log "Repo  : $RepoPath"
 $stale = [System.Collections.Generic.List[object]]::new()
 
 foreach ($sub in $subs) {
+    $allowedCategories = @('agents', 'hooks', 'instructions', 'plugins', 'skills', 'workflows')
+    if ($sub.category -notin $allowedCategories) {
+        Log "Skipping subscription with unsupported category '$($sub.category)' for '$($sub.name)'." 'ERROR'
+        continue
+    }
+    $expectedType = switch ($sub.category) {
+        { $_ -in 'agents', 'instructions', 'workflows' } { 'file'; break }
+        { $_ -in 'hooks', 'skills' } { 'directory'; break }
+        'plugins' { 'plugin'; break }
+    }
+    if ($sub.type -ne $expectedType) {
+        Log "Skipping subscription with unsupported type '$($sub.type)' for category '$($sub.category)'." 'ERROR'
+        continue
+    }
+
+    $sourceCategoryRoot = Join-Path $SourceRoot $sub.category
     $sourcePath = Join-Path $SourceRoot $sub.sourceRelPath
+    try {
+        Assert-PathWithin -Path $sourceCategoryRoot -ParentDirectory $SourceRoot
+        Assert-PathWithin -Path $sourcePath -ParentDirectory $sourceCategoryRoot
+    }
+    catch {
+        Log "Skipping subscription with an invalid cache path ('$($sub.sourceRelPath)'): $_" 'ERROR'
+        continue
+    }
 
     if (-not (Test-Path $sourcePath)) {
         Log "= Skipping $($sub.name) ($($sub.category)) — no longer in cache." 'WARN'
@@ -129,7 +154,16 @@ foreach ($sub in $subs) {
     }
 
     # Destination: .github/<sourceRelPath>  e.g. .github/agents/foo.agent.md
+    $destinationCategoryRoot = Join-Path $GithubDir $sub.category
     $destPath = Join-Path $GithubDir $sub.sourceRelPath
+    try {
+        Assert-PathWithin -Path $destinationCategoryRoot -ParentDirectory $RepoPath
+        Assert-PathWithin -Path $destPath -ParentDirectory $destinationCategoryRoot
+    }
+    catch {
+        Log "Skipping subscription with an invalid repository destination ('$($sub.sourceRelPath)'): $_" 'ERROR'
+        continue
+    }
 
     if (-not (Test-Path $destPath)) {
         Log "= Skipping $($sub.name) ($($sub.category)) — destination removed locally."
@@ -190,9 +224,29 @@ foreach ($item in $stale) {
             # Re-install each tracked component from the updated plugin source
             foreach ($comp in $sub.components) {
                 $compSrcPath  = Join-Path $SourceRoot $comp.srcRel
-                $compDestPath = Join-Path $GithubDir  $comp.destRel
+                $componentSourceRoot = switch ($comp.type) {
+                    'agent' { Join-Path $item.SourcePath 'agents' }
+                    'skill' { Join-Path $item.SourcePath 'skills' }
+                    'pluginJson' { Join-Path $item.SourcePath '.github/plugin' }
+                    default { throw "Unsupported plugin component type '$($comp.type)' for '$($sub.name)'." }
+                }
+                $componentDestinationRoot = switch ($comp.type) {
+                    'agent' { Join-Path $GithubDir 'agents' }
+                    'skill' { Join-Path $GithubDir 'skills' }
+                    'pluginJson' { Join-Path $GithubDir 'plugin' }
+                    default { throw "Unsupported plugin component type '$($comp.type)' for '$($sub.name)'." }
+                }
+                Assert-PathWithin -Path $componentSourceRoot -ParentDirectory $item.SourcePath
+                Assert-PathWithin -Path $compSrcPath -ParentDirectory $componentSourceRoot
+                Assert-PathWithin -Path $componentDestinationRoot -ParentDirectory $RepoPath
+                $compDestPath = if ($comp.type -eq 'pluginJson') {
+                    Join-Path (Join-Path $componentDestinationRoot $sub.name) 'plugin.json'
+                }
+                else {
+                    Join-Path $componentDestinationRoot (Split-Path $compSrcPath -Leaf)
+                }
+                Assert-PathWithin -Path $compDestPath -ParentDirectory $componentDestinationRoot
                 if (-not (Test-Path $compSrcPath)) { continue }
-                Assert-PathWithin -Path $compDestPath -ParentDirectory $GithubDir
                 $compDestDir = Split-Path $compDestPath -Parent
                 if (-not (Test-Path $compDestDir)) { New-Item -ItemType Directory -Path $compDestDir -Force | Out-Null }
                 if ($comp.type -eq 'skill') {

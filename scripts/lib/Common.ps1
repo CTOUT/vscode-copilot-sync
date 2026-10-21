@@ -14,17 +14,33 @@ function Assert-PathWithin {
     #>
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$ParentDirectory
+        [Parameter(Mandatory = $true)][string]$ParentDirectory,
+        [switch]$AllowEqual
     )
     $resolvedTarget = [System.IO.Path]::GetFullPath($Path)
-    $resolvedParent = [System.IO.Path]::GetFullPath($ParentDirectory)
-    if (-not $resolvedParent.EndsWith([System.IO.Path]::DirectorySeparatorChar.ToString()) -and
-        -not $resolvedParent.EndsWith([System.IO.Path]::AltDirectorySeparatorChar.ToString())) {
-        $resolvedParent += [System.IO.Path]::DirectorySeparatorChar
-    }
-    if (-not $resolvedTarget.StartsWith($resolvedParent, [System.StringComparison]::OrdinalIgnoreCase) -and
-        ($resolvedTarget -ne $resolvedParent.TrimEnd('\', '/'))) {
+    $resolvedParent = [System.IO.Path]::TrimEndingDirectorySeparator([System.IO.Path]::GetFullPath($ParentDirectory))
+    $relativePath = [System.IO.Path]::GetRelativePath($resolvedParent, $resolvedTarget)
+    $comparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+    $isEqual = [string]::Equals($relativePath, '.', $comparison)
+    $isOutside = [System.IO.Path]::IsPathRooted($relativePath) -or
+        [string]::Equals($relativePath, '..', $comparison) -or
+        $relativePath.StartsWith("..$([System.IO.Path]::DirectorySeparatorChar)", $comparison) -or
+        $relativePath.StartsWith("..$([System.IO.Path]::AltDirectorySeparatorChar)", $comparison)
+
+    if ($isOutside -or ($isEqual -and -not $AllowEqual)) {
         throw "Security validation failed: Target path '$resolvedTarget' traverses outside authorized directory '$resolvedParent'."
+    }
+
+    if (-not $isEqual) {
+        $currentPath = $resolvedParent
+        foreach ($segment in ($relativePath -split '[\\/]')) {
+            if (-not $segment -or $segment -eq '.') { continue }
+            $currentPath = Join-Path $currentPath $segment
+            $existingItem = Get-Item -LiteralPath $currentPath -Force -ErrorAction SilentlyContinue
+            if ($existingItem -and ($existingItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                throw "Security validation failed: Target path '$resolvedTarget' traverses a symbolic link or reparse point at '$currentPath'."
+            }
+        }
     }
 }
 

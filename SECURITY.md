@@ -45,7 +45,8 @@ Vulnerabilities in any of these are in scope. Areas of particular interest:
 
 ## Script Security Notes
 
-- All destination paths are validated using canonical boundary validation (`Assert-PathWithin` in `scripts/lib/Common.ps1`) to ensure all write and remove targets remain strictly within authorized directories.
+- Destination paths are validated by `Assert-PathWithin` in `scripts/lib/Common.ps1`. The check rejects paths equal to the authorized root unless explicitly allowed, path traversal, and existing symlink/reparse-point components beneath the root.
+- Subscription source paths are checked against their cache category, and repository destinations are checked against their `.github/<category>/` root before updates. Plugin component paths are additionally constrained to the selected plugin and its supported destination categories.
 - Upstream catalogue parsing (`llms.txt` in `scripts/sync-awesome-copilot.ps1`) sanitizes and validates relative paths against directory traversal tokens (`..`).
 - The scripts do **not** execute any of the content they download — they copy files only.
 - A `-DryRun` / `-Plan` flag is available on all scripts to preview changes without writing any files:
@@ -59,14 +60,14 @@ Vulnerabilities in any of these are in scope. Areas of particular interest:
 
 ## Verifying Upstream Content
 
-Because the scripts pull directly from `github/awesome-copilot`, we recommend:
+Because the scripts track the upstream `main` branch, review upstream content before installing or updating resources:
 
-1. Pin the sync to a specific commit or tag using the `-Ref` parameter (where supported) rather than always tracking `main`.
-2. Review the diff of any newly synced files before installing them into a repository:
+1. Review newly synced files in `~/.awesome-copilot/` before installing them into a repository or user-level Copilot directory.
+2. Use the dry-run mode to inspect the planned file operations:
 
    ```powershell
    # Preview what would be installed without writing anything
    .\configure.ps1 -DryRun
    ```
 
-3. Inspect newly downloaded files in `~/.awesome-copilot/` before running `init-repo.ps1` or `init-user.ps1`.
+3. Treat user-level agents and instructions as especially sensitive: they are available across repositories and may influence Copilot sessions.

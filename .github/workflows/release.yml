@@ -5,12 +5,47 @@ on:
     tags:
       - "v*.*.*"
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
-  release:
+  validate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run format:check
+      - run: npm run spellcheck
+      - name: Run Pester tests and PowerShell analysis
+        shell: pwsh
+        run: |
+          Install-Module -Name Pester -RequiredVersion 6.2.0 -Force -Scope CurrentUser
+          Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.24.0 -Force -Scope CurrentUser
+          Invoke-Pester -Path scripts/lib/Common.Tests.ps1 -CI
+          $psFiles = Get-ChildItem -Recurse -Include *.ps1, *.psm1, *.psd1 -Exclude node_modules, bin, obj
+          $errors = $psFiles | Invoke-ScriptAnalyzer | Where-Object { $_.Severity -eq 'Error' }
+          if ($errors) {
+            $errors | Format-Table
+            exit 1
+          }
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+  release:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout

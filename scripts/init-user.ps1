@@ -168,7 +168,7 @@ function Remove-File {
 
 function Install-Directory {
     param([string]$SrcDir, [string]$DestParent)
-    Assert-PathWithin -Path $DestParent -ParentDirectory $SkillsDir
+    Assert-PathWithin -Path $DestParent -ParentDirectory $SkillsDir -AllowEqual
     $name = Split-Path $SrcDir -Leaf
     $destDir = Join-Path $DestParent $name
     Assert-PathWithin -Path $destDir -ParentDirectory $DestParent

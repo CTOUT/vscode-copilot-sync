@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Security
+
+- **Subscription path validation**: Reject cache traversal, repository-root deletion targets, and symlink/reparse-point escapes; constrain plugin updates to validated source and destination roots.
+- **GitHub Actions hardening**: Use locked npm installs, run dependency audits, pin PowerShell modules, grant read-only permissions to validation workflows, run Pester in CI, and require release validation and secret scanning before publishing.
+
 ### Changed
 
 - **VS Code user customization location**:

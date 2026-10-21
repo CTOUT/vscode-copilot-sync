@@ -44,7 +44,7 @@ Notes:
     [string]$PromptsDir = '',
     [string]$AgentsDir = '',
     [string]$InstructionsDir = '',
-    [string]$SkillsDir  = '',
+    [string]$SkillsDir = '',
     [switch]$Force,
     [switch]$DryRun,
     [string]$Category = ''  # Comma-separated categories to check (e.g. 'agents,skills'); all checked if omitted
@@ -63,7 +63,7 @@ if ($PromptsDir) {
 if (-not $AgentsDir) { $AgentsDir = Resolve-AgentsDirectory }
 if (-not $InstructionsDir) { $InstructionsDir = Resolve-InstructionsDirectory }
 $LegacyPromptsDir = Resolve-LegacyPromptsDirectory
-if (-not $SkillsDir)  { $SkillsDir  = Resolve-SkillsDirectory }
+if (-not $SkillsDir) { $SkillsDir = Resolve-SkillsDirectory }
 
 $migrationResult = Invoke-LegacyUserCustomizationMigration `
     -LegacyDirectory $LegacyPromptsDir `
@@ -83,7 +83,7 @@ if (-not (Test-Path $ManifestPath)) {
 }
 
 $manifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
-$subs     = @($manifest.subscriptions)
+$subs = @($manifest.subscriptions)
 
 if (-not $subs -or $subs.Count -eq 0) {
     exit 0
@@ -114,7 +114,27 @@ Log "Skills dir : $SkillsDir"
 $stale = [System.Collections.Generic.List[object]]::new()
 
 foreach ($sub in $subs) {
+    $allowedCategories = @('agents', 'instructions', 'skills')
+    if ($sub.category -notin $allowedCategories) {
+        Log "Skipping subscription with unsupported category '$($sub.category)' for '$($sub.name)'." 'ERROR'
+        continue
+    }
+    $expectedType = if ($sub.category -eq 'skills') { 'directory' } else { 'file' }
+    if ($sub.type -ne $expectedType) {
+        Log "Skipping subscription with unsupported type '$($sub.type)' for category '$($sub.category)'." 'ERROR'
+        continue
+    }
+
+    $sourceCategoryRoot = Join-Path $SourceRoot $sub.category
     $sourcePath = Join-Path $SourceRoot $sub.sourceRelPath
+    try {
+        Assert-PathWithin -Path $sourceCategoryRoot -ParentDirectory $SourceRoot
+        Assert-PathWithin -Path $sourcePath -ParentDirectory $sourceCategoryRoot
+    }
+    catch {
+        Log "Skipping subscription with an invalid cache path ('$($sub.sourceRelPath)'): $_" 'ERROR'
+        continue
+    }
 
     if (-not (Test-Path $sourcePath)) {
         Log "= Skipping $($sub.name) ($($sub.category)) — no longer in cache." 'WARN'
@@ -138,20 +158,22 @@ foreach ($sub in $subs) {
 
     $currentHash = if ($sub.type -eq 'file') {
         (Get-FileHash $sourcePath -Algorithm SHA256).Hash
-    } else {
+    }
+    else {
         Get-DirHash $sourcePath
     }
 
     if ($currentHash -ne $sub.hashAtInstall) {
         $stale.Add([pscustomobject]@{
-            Sub         = $sub
-            SourcePath  = $sourcePath
-            DestPath    = $destPath
-            DestRoot    = $destRoot
-            CurrentHash = $currentHash
-        })
+                Sub         = $sub
+                SourcePath  = $sourcePath
+                DestPath    = $destPath
+                DestRoot    = $destRoot
+                CurrentHash = $currentHash
+            })
         Log "↑ Stale : $($sub.name) ($($sub.category))"
-    } else {
+    }
+    else {
         Log "= Current: $($sub.name) ($($sub.category))"
     }
 }
@@ -192,12 +214,13 @@ foreach ($item in $stale) {
             $destDir = Split-Path $item.DestPath -Parent
             if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
             Copy-Item $item.SourcePath $item.DestPath -Force
-        } else {
+        }
+        else {
             Assert-PathWithin -Path $item.DestPath -ParentDirectory $item.DestRoot
             # Mirror all files from the source directory into the destination
             Get-ChildItem $item.SourcePath -File -Recurse | ForEach-Object {
-                $rel     = $_.FullName.Substring($item.SourcePath.Length).TrimStart('\', '/')
-                $dest    = Join-Path $item.DestPath $rel
+                $rel = $_.FullName.Substring($item.SourcePath.Length).TrimStart('\', '/')
+                $dest = Join-Path $item.DestPath $rel
                 Assert-PathWithin -Path $dest -ParentDirectory $item.DestPath
                 $destDir = Split-Path $dest -Parent
                 if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
@@ -208,7 +231,8 @@ foreach ($item in $stale) {
         $sub | Add-Member -NotePropertyName 'installedAt'   -NotePropertyValue (Get-Date).ToString('o') -Force
         Log "✓ Updated: $($sub.name) ($($sub.category))"
         $updated++
-    } catch {
+    }
+    catch {
         Log "Failed to update $($sub.name): $_" 'ERROR'
     }
 }
