@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `docs/PRODUCT_DIRECTION.md`: Documented the cross-agent asset-management direction, portability boundaries, product scope, and validation hypothesis.
+
 ### Security
 
 - **Subscription path validation**: Reject cache traversal, repository-root deletion targets, and symlink/reparse-point escapes; constrain plugin updates to validated source and destination roots.
