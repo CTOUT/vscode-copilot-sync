@@ -1,31 +1,19 @@
 # Changelog
 
-## [Unreleased]
+## [v2.5.0] — 2026-10-22
 
 ### Added
 
+- **`Invoke-LegacyUserSkillsMigration`** in `scripts/lib/Common.ps1`: Migrates subscribed skill directories from `~/.agents/skills` to `~/.copilot/skills` using the same safe copy-verify-remove pattern as agent and instruction migration. Only directories whose names are recorded in `user-subscriptions.json` are touched.
+- **`Write-LegacyUserSkillsMigrationSummary`** in `scripts/lib/Common.ps1`: Reports the outcome of a skills migration run to the console log.
+- **Pester test coverage**: Added `Invoke-LegacyUserSkillsMigration` describe block (5 tests) and path resolution describe blocks for `Resolve-AgentsDirectory`, `Resolve-InstructionsDirectory`, and `Resolve-SkillsDirectory` (7 tests) in `scripts/lib/Common.Tests.ps1`.
 - `docs/PRODUCT_DIRECTION.md`: Documented the cross-agent asset-management direction, portability boundaries, product scope, and validation hypothesis.
-
-### Security
-
-- **Subscription path validation**: Reject cache traversal, repository-root deletion targets, and symlink/reparse-point escapes; constrain plugin updates to validated source and destination roots.
-- **GitHub Actions hardening**: Use locked npm installs, run dependency audits, pin PowerShell modules, grant read-only permissions to validation workflows, run Pester in CI, and require release validation and secret scanning before publishing.
 
 ### Changed
 
-- **VS Code user customization location**:
-  - `scripts/lib/Common.ps1`: Resolve user agents and instructions to `~/.copilot/agents` and `~/.copilot/instructions`.
-  - `configure.ps1`, `scripts/init-user.ps1`, and `scripts/update-user.ps1`: Migrate legacy user agents and instructions to the Copilot harness directories, verifying copied content before removing the source and preserving destination conflicts.
-  - `README.md`, `SECURITY.md`, and `.github/copilot-instructions.md`: Document user and repo destinations and clarify that MCP configuration is outside this tool’s managed resource scope.
-- **Paginated console menu & top-down interactive selection**:
-  - `scripts/lib/Common.ps1`: Implemented `Show-ConsoleMenu` featuring interactive pagination (15 items per page), keyword filtering (`/keyword` or `f keyword`), page navigation (`[n]ext` / `[p]rev`), range selection (`1-3`), bulk recommendation shortcuts (`rec` / `r`), and persistent accumulation across pages.
-  - `scripts/lib/Common.ps1`: Configured `Show-FzfPicker` with `--layout=reverse`, `--height=80%`, `--border`, `--info=inline`, and `--cycle`, ensuring natural top-down reading order with recommended items at the top.
-  - `scripts/lib/Common.ps1`: Added `Show-ItemPicker` as a unified DRY dispatcher consolidating `Show-OGV`, `Show-FzfPicker`, and `Show-ConsoleMenu`, eliminating over 300 lines of duplicate menu code across `scripts/init-user.ps1` and `scripts/init-repo.ps1`.
-- **Console-first default & `-Gui` deprecation**:
-  - `scripts/init-user.ps1`, `scripts/init-repo.ps1`, `configure.ps1`: Defaulted interactive resource selection to cross-platform terminal selection (`fzf` or numbered console menu) across all operating systems including Windows.
-  - Added `-Gui` switch to opt into the Windows `Out-GridView` table picker.
-  - Formally marked `-Gui` and `Show-OGV` as deprecated with console notices and documentation annotations ahead of removal in v3.0 (preparation for standalone cross-platform Node / TypeScript CLI).
-  - `scripts/lib/Config.ps1`: Added `picker = 'console'` to default configuration, supporting personal override to `"picker": "gui"` in `~/.awesome-copilot/config.json`.
+- **`scripts/init-user.ps1` and `scripts/update-user.ps1`**: Both scripts now call `Invoke-LegacyUserSkillsMigration` on startup, immediately after agent and instruction migration, offering automatic migration of managed skills from `~/.agents/skills` to `~/.copilot/skills`.
+
+> **Note:** `~/.copilot/skills` is the canonical install location for user-level skills. `~/.agents/skills` is treated as a migration source only — new installs always go to `~/.copilot/skills`.
 
 ## [v2.4.0] — 2026-10-04
 

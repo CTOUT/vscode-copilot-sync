@@ -4,6 +4,9 @@ logs/
 # PowerShell history
 .history
 
+# Kiro IDE workspace settings
+.kiro/
+
 # VS Code workspace settings
 .vscode/
 
