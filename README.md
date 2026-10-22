@@ -2,10 +2,18 @@
 
 A PowerShell toolkit to sync, install, and manage [GitHub Copilot](https://github.com/features/copilot) agents, instructions, and skills from the [awesome-copilot](https://github.com/github/awesome-copilot) community catalogue — cherry-picking exactly what each repo needs, with full lifecycle management. Works on Windows, macOS, and Linux.
 
+## Project Status
+
+> **Project Status:** This is the final feature release (v2.5) of vscode-copilot-sync. The repository will be archived. Its successor, **[agentsmith](https://github.com/CTOUT/agentsmith)**, continues this work as a cross-environment, runtime-agnostic agent asset manager supporting VS Code, Kiro, Antigravity, and more.
+
 ## What This Does
 
 1. **Syncs** the latest agents, instructions, and skills from [awesome-copilot](https://github.com/github/awesome-copilot) into a local cache (`~/.awesome-copilot/`) using git sparse checkout alongside the curated `llms.txt` catalogue
 2. **Initialises repos** — intelligently recommends and installs resources into a repo's `.github/` folder based on detected language/framework, with full install/update/remove lifecycle management
+
+## Project Direction
+
+The current toolkit focuses on Awesome Copilot resources and Copilot-oriented destinations. The longer-term product direction is cross-agent asset management across supported IDEs, CLIs, and agent workspaces. See [Product Direction](docs/PRODUCT_DIRECTION.md) for the strategy, interoperability boundaries, and validation questions. This is a direction under validation; it does not describe capabilities already implemented.
 
 ### What goes where
 
@@ -343,6 +351,8 @@ Installs agents, instructions, and skills into user-level locations, making them
 | Agents       | `~/.copilot/agents/*.agent.md`              |
 | Instructions | `~/.copilot/instructions/*.instructions.md` |
 | Skills       | `~/.copilot/skills/<name>/`                 |
+
+> **Note:** If skills are found in `~/.agents/skills` from a previous setup, they are migrated automatically to `~/.copilot/skills` on the next run.
 
 VS Code stores user MCP server configuration separately in `$COPILOT_HOME/mcp-config.json`, or `~/.copilot/mcp-config.json` when `COPILOT_HOME` is not set. These scripts do not manage that file.
 
